@@ -1,3 +1,4 @@
 /videos
 /trained_models
 .venv/
+.DS_Store
