@@ -1,7 +1,7 @@
 from pose_estimator import PoseEstimator
-from form_checkers.squat_form_checker import Squat_Form_Checker
-from form_checkers.barbell_bent_over_row_form_checker import Barbell_Bent_Over_Row_Form_Checker
-from form_checkers.benchpress_form_checker import Benchpress_Form_Checker
+from src.form_checkers.squat_formChecker import Squat_Form_Checker
+from src.form_checkers.barbell_bentOver_formChecker import Barbell_Bent_Over_Row_Form_Checker
+from src.form_checkers.benchpress_formChecker import Benchpress_Form_Checker
 import cv2 
 
 def main():
