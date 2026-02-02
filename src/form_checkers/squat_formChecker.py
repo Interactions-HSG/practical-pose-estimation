@@ -15,7 +15,7 @@ def check_Squat_form(landmarks: np.array):
     left_knee = landmarks[26]
     left_ankle = landmarks[28]  
 
-    if right_hip[3] < 0.95 or right_knee[3] < 0.95 or right_ankle[3] < 0.95 or left_hip[3] < 0.95 or left_knee[3] < 0.95 or left_ankle[3] < 0.95:
+    if right_hip[4] < 0.95 or right_knee[4] < 0.95 or right_ankle[4] < 0.95 or left_hip[4] < 0.95 or left_knee[4] < 0.95 or left_ankle[4] < 0.95:
         print("Please adjust the camera for better visibility and remove any obstacles.")
         return
     else:
