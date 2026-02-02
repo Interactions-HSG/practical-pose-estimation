@@ -15,7 +15,7 @@ class PoseEstimator:
         (27, 29), (28, 30), (29, 31), (30, 32), (27, 31), (28, 32),
     ]
 
-    def __init__(self, mode: str, model_path: str = 'trained_models/pose_landmarker_full.task'):
+    def __init__(self, mode: str, model_path: str = '../trained_models/pose_landmarker_full.task'):
         self.model_path = model_path
         self.mode = mode
         self.latest_result = None
@@ -46,7 +46,7 @@ class PoseEstimator:
 
     def _open_video_source(self):
         if self.mode == '1':
-            cap = cv2.VideoCapture('videos/test2.mov')
+            cap = cv2.VideoCapture('../videos/test2.mov')
         else:
             cap = cv2.VideoCapture(0)
 
@@ -90,13 +90,13 @@ class PoseEstimator:
                     end = landmarks[end_idx]
 
                     # Only draw if confidence is high enough
-                    if start.presence > 0.5 and end.presence > 0.5:
+                    if start.presence > 0.75 and end.presence > 0.75:
                         p1 = (int(start.x * w), int(start.y * h))
                         p2 = (int(end.x * w), int(end.y * h))
                         cv2.line(annotated_frame, p1, p2, (0, 255, 0), 4)
 
             for lm in landmarks:
-                if lm.presence > 0.5:
+                if lm.presence > 0.75:
                     x, y = int(lm.x * w), int(lm.y * h)
                     cv2.circle(annotated_frame, (x, y), 8, (255, 255, 0), -1)
                     cv2.circle(annotated_frame, (x, y), 8, (0, 0, 0), 2)
