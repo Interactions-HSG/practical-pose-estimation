@@ -1,5 +1,5 @@
 import numpy as np
 
-class Barbell_Bent_Over_Row_Form_Checker:
+class BentOverRowFormChecker:
     def __init__(self):
         pass

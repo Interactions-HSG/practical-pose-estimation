@@ -1,6 +1,5 @@
 import numpy as np
 
-
 def calculate_angle(a, b, c):
     a = np.array(a)  
     b = np.array(b)  

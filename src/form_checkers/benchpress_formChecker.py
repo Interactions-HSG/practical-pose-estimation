@@ -1,5 +1,5 @@
 import numpy as np
 
-class Benchpress_Form_Checker:
+class BenchpressFormChecker:
     def __init__(self):
         pass
