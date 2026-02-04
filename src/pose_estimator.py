@@ -61,7 +61,7 @@ class PoseEstimator:
     def _process_frame(self):
         status, frame = self.video.read()
         if not status:
-            return None, None
+            return None
 
         timestamp = int(time.perf_counter() * 1000)
 
@@ -69,12 +69,11 @@ class PoseEstimator:
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
 
         if self.mode == '1':
-            result = self.landmarker.detect_for_video(mp_image, timestamp)
+            self.latest_result = self.landmarker.detect_for_video(mp_image, timestamp)
         else:
             self.landmarker.detect_async(mp_image, timestamp)
-            result = self.latest_result
 
-        return result, frame
+        return frame
 
     def _draw_landmarks(self, image, result):
         if not result:
@@ -118,11 +117,10 @@ class PoseEstimator:
 
 
     def run(self):
-        result, frame = self._process_frame()
+        frame = self._process_frame()
         if frame is None:
-            SystemExit("Failed to read from video source")
-
-        annotated = self._draw_landmarks(frame, result)
+            return None
+        annotated = self._draw_landmarks(frame, self.latest_result)
         return annotated   
 
     def cleanup(self):
