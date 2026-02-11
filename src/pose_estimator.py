@@ -46,7 +46,7 @@ class PoseEstimator:
 
     def _open_video_source(self):
         if self.mode == '1':
-            cap = cv2.VideoCapture('../videos/test2.mov')
+            cap = cv2.VideoCapture('../videos/test10.mov')
         else:
             cap = cv2.VideoCapture(0)
 
@@ -103,10 +103,11 @@ class PoseEstimator:
         return annotated_frame
     
     def get_landmarks_result(self):
-        if not self.latest_result or not self.latest_result.pose_landmarks:
+        # Use 3D real-world (in meters) coordinates for more accurate angle and distance calculations, and include visibility and presence for form checks
+        if not self.latest_result or not self.latest_result.pose_world_landmarks:
             return None
         
-        landmarks = self.latest_result.pose_landmarks[0]
+        landmarks = self.latest_result.pose_world_landmarks[0]
         
         result = []
         for lm in landmarks:
@@ -114,7 +115,6 @@ class PoseEstimator:
         
         # Returns a 33 x 5 Numpy Array (Matrix) for the 33 landmarks
         return np.array(result, dtype=np.float32)
-
 
     def run(self):
         frame = self._process_frame()
