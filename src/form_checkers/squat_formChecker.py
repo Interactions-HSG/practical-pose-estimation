@@ -65,26 +65,27 @@ class SquatFormChecker:
     def _check_knee_tracking(self): 
 
         # Values for knee tracking over toes calculation by projecting the knee position onto the foot direction vector
-        right_foot_direction = self.right_toe[:3] - self.right_heel[:3]
-        left_foot_direction = self.left_toe[:3] - self.left_heel[:3]
+        right_foot_length = np.linalg.norm(self.right_toe[:3] - self.right_heel[:3])
+        left_foot_length = np.linalg.norm(self.left_toe[:3] - self.left_heel[:3])
 
-        right_foot_length = np.linalg.norm(right_foot_direction)
-        left_foot_length = np.linalg.norm(left_foot_direction)
+        norm_right_foot_direction = (self.right_toe[:3] - self.right_heel[:3]) / right_foot_length
+        norm_left_foot_direction = (self.left_toe[:3] - self.left_heel[:3]) / left_foot_length
 
-        norm_right_foot_direction = right_foot_direction / right_foot_length
-        norm_left_foot_direction = left_foot_direction / left_foot_length
+        right_knee_projection = abs(np.dot(self.right_heel[:3] - self.right_knee[:3], norm_right_foot_direction))
+        left_knee_projection = abs(np.dot(self.left_heel[:3] - self.left_knee[:3], norm_left_foot_direction))
 
-        right_knee_projection = np.dot(self.right_knee[:3] - self.right_heel[:3], norm_right_foot_direction)
-        left_knee_projection = np.dot(self.left_knee[:3] - self.left_heel[:3], norm_left_foot_direction)
+        # Threshold: buffer against measurement noise (5% of foot length)
+        threshold_right = 0.04 * right_foot_length
+        threshold_left = 0.04 * left_foot_length
+
+        right_over_toes = right_knee_projection > (right_foot_length + threshold_right)
+        left_over_toes = left_knee_projection > (left_foot_length + threshold_left)
 
         # Values for knee caving inwards calculation              
         right_dist_knee_heel = np.linalg.norm(self.right_knee[:3] - self.right_heel[:3])
         left_dist_knee_heel = np.linalg.norm(self.left_knee[:3] - self.left_heel[:3])
         dist_knees = np.linalg.norm(self.right_knee[:3] - self.left_knee[:3])
 
-        threshold = 0.1
-        right_over_toes = right_knee_projection > (right_foot_length + threshold)
-        left_over_toes = left_knee_projection > (left_foot_length + threshold)
 
         if right_over_toes or left_over_toes:
             cv2.putText(self.annotated, "KNEE TRACKING: Knees are tracking over toes.", (10, 100), self.font, 1.25, self.red, 2, cv2.LINE_AA)
@@ -96,11 +97,6 @@ class SquatFormChecker:
     def _check_back_form(self, ):
         torso_inclination_left = findAngle(self.left_hip[0], self.left_hip[1], self.left_shoulder[0], self.left_shoulder[1])
         torso_inclination_right = findAngle(self.right_hip[0], self.right_hip[1], self.right_shoulder[0], self.right_shoulder[1])
-
-        h, w, _ = self.annotated.shape
-        cv2.putText(self.annotated, str(int(torso_inclination_left)), (int((self.left_hip[0] * w)), int(self.left_hip[1] * h)), self.font, 1.25, self.red, 2)
-        cv2.putText(self.annotated, str(int(torso_inclination_right)), (int((self.right_hip[0] * w)), int(self.right_hip[1] * h)), self.font, 1.25, self.red, 2)
-
         if torso_inclination_left < 55 and torso_inclination_right < 55:
             cv2.putText(self.annotated, "BACK FORM: Good back form.", (10, 140), self.font, 1.25, self.green, 2, cv2.LINE_AA)
 
