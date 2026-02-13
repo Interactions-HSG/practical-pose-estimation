@@ -12,10 +12,3 @@ def calculate_angle(a, b, c):
     angle = np.arccos(cosine_angle)
 
     return np.degrees(angle)
-
-# Used for back form check in squat form checker - Is not reliant on three points like the above method
-def findAngle(x1, y1, x2, y2):
-    theta = np.arccos( (y2 -y1)*(-y1) / (np.sqrt(
-        (x2 - x1)**2 + (y2 - y1)**2 ) * y1) )
-    degree = int(180/np.pi)*theta
-    return degree

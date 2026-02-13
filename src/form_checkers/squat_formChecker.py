@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from ._angleCalculator import calculate_angle, findAngle
+from ._angleCalculator import calculate_angle
 
 class SquatFormChecker:
     '''
@@ -63,7 +63,6 @@ class SquatFormChecker:
         return depth_achieved
 
     def _check_knee_tracking(self): 
-
         # Values for knee tracking over toes calculation by projecting the knee position onto the foot direction vector
         right_foot_length = np.linalg.norm(self.right_toe[:3] - self.right_heel[:3])
         left_foot_length = np.linalg.norm(self.left_toe[:3] - self.left_heel[:3])
@@ -74,9 +73,9 @@ class SquatFormChecker:
         right_knee_projection = abs(np.dot(self.right_heel[:3] - self.right_knee[:3], norm_right_foot_direction))
         left_knee_projection = abs(np.dot(self.left_heel[:3] - self.left_knee[:3], norm_left_foot_direction))
 
-        # Threshold: buffer against measurement noise (5% of foot length)
-        threshold_right = 0.04 * right_foot_length
-        threshold_left = 0.04 * left_foot_length
+        # Threshold: buffer against measurement noise (3% of foot length)
+        threshold_right = 0.03 * right_foot_length
+        threshold_left = 0.03 * left_foot_length
 
         right_over_toes = right_knee_projection > (right_foot_length + threshold_right)
         left_over_toes = left_knee_projection > (left_foot_length + threshold_left)
@@ -87,18 +86,27 @@ class SquatFormChecker:
         dist_knees = np.linalg.norm(self.right_knee[:3] - self.left_knee[:3])
 
 
+        # Independent checks for both issues
+        warnings = []
         if right_over_toes or left_over_toes:
-            cv2.putText(self.annotated, "KNEE TRACKING: Knees are tracking over toes.", (10, 100), self.font, 1.25, self.red, 2, cv2.LINE_AA)
-        # elif dist_knees < right_dist_knee_heel or dist_knees < left_dist_knee_heel:
-        #     cv2.putText(self.annotated, "KNEE TRACKING: Knees are caving inwards.", (10, 100), self.font, 1.25, self.red, 2, cv2.LINE_AA)
+            warnings.append("over toes")
+        if dist_knees < right_dist_knee_heel or dist_knees < left_dist_knee_heel:
+            warnings.append("caving inwards")
+        
+        if warnings:
+            text = "KNEE TRACKING: Knees are " + " and ".join(warnings)
+            cv2.putText(self.annotated, text, (10, 100), self.font, 1.25, self.red, 2, cv2.LINE_AA)
         else:
-            cv2.putText(self.annotated, "KNEE TRACKING: Knees are properly aligned.", (10, 100), self.font, 1.25, self.green, 2, cv2.LINE_AA)
+            cv2.putText(self.annotated, "KNEE TRACKING: Knees are properly aligned", (10, 100), self.font, 1.25, self.green, 2, cv2.LINE_AA)
             
-    def _check_back_form(self, ):
-        torso_inclination_left = findAngle(self.left_hip[0], self.left_hip[1], self.left_shoulder[0], self.left_shoulder[1])
-        torso_inclination_right = findAngle(self.right_hip[0], self.right_hip[1], self.right_shoulder[0], self.right_shoulder[1])
+    def _check_back_form(self):
+        hip_below_left = [self.left_hip[0], self.left_hip[1] - 1, self.left_hip[2]]
+        hip_below_right = [self.right_hip[0], self.right_hip[1] - 1, self.right_hip[2]]
+        torso_inclination_left = calculate_angle(self.left_shoulder[:3], self.left_hip[:3], hip_below_left)
+        torso_inclination_right = calculate_angle(self.right_shoulder[:3], self.right_hip[:3], hip_below_right)
+
         if torso_inclination_left < 55 and torso_inclination_right < 55:
             cv2.putText(self.annotated, "BACK FORM: Good back form.", (10, 140), self.font, 1.25, self.green, 2, cv2.LINE_AA)
-
+        
         else:
             cv2.putText(self.annotated, "BACK FORM: Try to keep the trunk upright.", (10, 140), self.font, 1.25, self.red, 2, cv2.LINE_AA)
