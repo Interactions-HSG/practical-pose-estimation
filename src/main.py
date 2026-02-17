@@ -6,6 +6,7 @@ def main():
 
     # Get mode from user input
     mode = input("Enter mode ('1' for video file, '2' for live webcam): ")
+    exercise = input("Enter exercise type ('squat', 'benchpress', 'bentover'): ")
 
     if mode == 'q':
         print("Exiting program.")
@@ -25,7 +26,12 @@ def main():
         points = pose_estimator.get_landmarks_result()
         
         if points is not None:
-            depth_achieved = squat_checker.check_Squat_form(annotated, points, depth_achieved)
+            if exercise == 'squat':
+                depth_achieved = squat_checker.check_Squat_form(annotated, points, depth_achieved)
+            elif exercise == 'benchpress':
+                benchpress_checker.check_benchpress_form(annotated, points)
+            elif exercise == 'bentover':
+                bentOver_checker.check_bentover_form(annotated, points)
         
         cv2.imshow("Visual Spotter", annotated)
         if cv2.waitKey(1) & 0xFF == ord('q'):

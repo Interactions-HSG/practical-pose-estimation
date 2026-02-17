@@ -21,25 +21,28 @@ class SquatFormChecker:
         self.red = (0, 0, 255)
 
         #Relevant landmarks for squat form check
+        self.left_shoulder = landmarks[11]
         self.left_hip = landmarks[23] 
         self.left_knee = landmarks[25]
         self.left_ankle = landmarks[27] 
-        self.left_toe = landmarks[31]
-        self.left_shoulder = landmarks[11]
         self.left_heel = landmarks[29]
+        self.left_toe = landmarks[31]
 
+        self.right_shoulder = landmarks[12]
         self.right_hip = landmarks[24]
         self.right_knee = landmarks[26]
         self.right_ankle = landmarks[28]  
-        self.right_toe = landmarks[32] 
-        self.right_shoulder = landmarks[12]
         self.right_heel = landmarks[30]
+        self.right_toe = landmarks[32] 
+
 
         self.right_knee_angle = calculate_angle(self.right_hip[:3], self.right_knee[:3], self.right_ankle[:3])
         self.left_knee_angle = calculate_angle(self.left_hip[:3], self.left_knee[:3], self.left_ankle[:3])
 
-    
-        if self.right_hip[4] < 0.95 or self.right_knee[4] < 0.95 or self.right_ankle[4] < 0.95 or self.left_hip[4] < 0.95 or self.left_knee[4] < 0.95 or self.left_ankle[4] < 0.95:
+        required_landmarks = [self.right_shoulder, self.right_hip, self.right_knee, self.right_ankle, self.right_toe, self.right_heel,
+                              self.left_shoulder, self.left_hip, self.left_knee, self.left_ankle, self.left_toe, self.left_heel]
+        
+        if any(landmark[4] < 0.95 for landmark in required_landmarks):
             cv2.putText(self.annotated, "Please adjust the camera for better visibility.", (10, 60), self.font, 1.25, self.red, 2, self.line)
         else:
             depth_achieved = self._check_depth(depth_achieved)
