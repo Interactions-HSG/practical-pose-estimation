@@ -115,7 +115,22 @@ class PoseEstimator:
         
         # Returns a 33 x 5 Numpy Array (Matrix) for the 33 landmarks
         return np.array(result, dtype=np.float32)
-
+    
+    def get_landmarks_2d(self):
+        # Get 2D pixel coordinates for visualization or other purposes
+        if not self.latest_result or not self.latest_result.pose_landmarks:
+            return None
+        
+        landmarks = self.latest_result.pose_landmarks[0]
+        
+        result = []
+        for lm in landmarks:
+            result.append([lm.x, lm.y, lm.visibility, lm.presence])
+        
+        # Returns a 33 x 4 Numpy Array (Matrix) for the 33 landmarks
+        return np.array(result, dtype=np.float32)
+    
+    
     def run(self):
         frame = self._process_frame()
         if frame is None:

@@ -1,10 +1,11 @@
 import cv2
 import numpy as np
-from ._angleCalculator import calculate_angle
+from ._utilityFunctions import calculate_angle, detect_cam_pos
 
 class SquatFormChecker:
     '''
-    This class is responsible for checking the form of a squat exercise using pose landmarks. It evaluates squat depth and knee tracking as well as checking the form of the back providing real-time feedback on the form.
+    This class is responsible for checking the form of a squat exercise using pose landmarks. It evaluates squat depth and knee tracking as well as checking the form of
+    the back providing real-time feedback on the form.
     '''
 
     def check_Squat_form(self, annotated, landmarks: np.array, depth_achieved):
@@ -39,8 +40,11 @@ class SquatFormChecker:
         self.right_knee_angle = calculate_angle(self.right_hip[:3], self.right_knee[:3], self.right_ankle[:3])
         self.left_knee_angle = calculate_angle(self.left_hip[:3], self.left_knee[:3], self.left_ankle[:3])
 
+
         required_landmarks = [self.right_shoulder, self.right_hip, self.right_knee, self.right_ankle, self.right_toe, self.right_heel,
                               self.left_shoulder, self.left_hip, self.left_knee, self.left_ankle, self.left_toe, self.left_heel]
+             
+        self.cam_pos = detect_cam_pos(required_landmarks)
         
         if any(landmark[4] < 0.95 for landmark in required_landmarks):
             cv2.putText(self.annotated, "Please adjust the camera for better visibility.", (10, 60), self.font, 1.25, self.red, 2, self.line)
@@ -48,7 +52,8 @@ class SquatFormChecker:
             depth_achieved = self._check_depth(depth_achieved)
             if 155 > self.right_knee_angle and 155 > self.left_knee_angle:
                 self._check_knee_tracking()
-                self._check_back_form()
+                if self.cam_pos == "left" or self.cam_pos == "right":
+                    self._check_back_form()
 
         return depth_achieved
 
@@ -91,10 +96,12 @@ class SquatFormChecker:
 
         # Independent checks for both issues
         warnings = []
-        if right_over_toes or left_over_toes:
-            warnings.append("over toes")
-        if dist_knees < right_dist_knee_heel or dist_knees < left_dist_knee_heel:
-            warnings.append("caving inwards")
+        if self.cam_pos == "left" or self.cam_pos == "right":
+            if right_over_toes or left_over_toes:
+                warnings.append("over toes")
+        if self.cam_pos == "front":
+            if dist_knees < right_dist_knee_heel or dist_knees < left_dist_knee_heel:
+                warnings.append("caving inwards")
         
         if warnings:
             text = "KNEE TRACKING: Knees are " + " and ".join(warnings)
