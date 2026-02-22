@@ -18,6 +18,10 @@ def main():
     benchpress_checker = BenchpressFormChecker()
     bentOver_checker = BentOverRowFormChecker()
     depth_achieved = False 
+    correct_back_form = False
+    rom_achieved = False
+    init_pos = True 
+
 
     print("Starting pose estimation...")
     while True:
@@ -34,7 +38,7 @@ def main():
                 case 'benchpress':
                     benchpress_checker.check_benchpress_form(annotated, points)
                 case 'bentover':
-                    bentOver_checker.check_bentover_form(annotated, points, points_2d)
+                    correct_back_form, rom_achieved, init_pos = bentOver_checker.check_bentover_form(annotated, points, correct_back_form, rom_achieved, init_pos)
                 case _:
                     print("Invalid exercise type. Please enter 'squat', 'benchpress', or 'bentover'.")
                     break
