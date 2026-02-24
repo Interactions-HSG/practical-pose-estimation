@@ -38,7 +38,7 @@ def main():
                 case 'benchpress':
                     benchpress_checker.check_benchpress_form(annotated, points)
                 case 'bentover':
-                    correct_back_form, rom_achieved, init_pos = bentOver_checker.check_bentover_form(annotated, points, correct_back_form, rom_achieved, init_pos)
+                    correct_back_form, rom_achieved, init_pos = bentOver_checker.check_bentover_form(annotated, points, correct_back_form, rom_achieved, init_pos, points_2d)
                 case _:
                     print("Invalid exercise type. Please enter 'squat', 'benchpress', or 'bentover'.")
                     break

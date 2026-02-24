@@ -17,6 +17,7 @@ class SquatFormChecker:
         
         # Set up for text display
         self.font = cv2.FONT_HERSHEY_SIMPLEX
+        self.font_size = 1.25
         self.line = cv2.LINE_AA
         self.green = (0, 255, 0)
         self.red = (0, 0, 255)
@@ -39,6 +40,7 @@ class SquatFormChecker:
 
         self.right_knee_angle = calculate_angle(self.right_hip[:3], self.right_knee[:3], self.right_ankle[:3])
         self.left_knee_angle = calculate_angle(self.left_hip[:3], self.left_knee[:3], self.left_ankle[:3])
+        self.init_pos_threshold = 155
 
 
         required_landmarks = [self.right_shoulder, self.right_hip, self.right_knee, self.right_ankle, self.right_toe, self.right_heel,
@@ -47,10 +49,10 @@ class SquatFormChecker:
         self.cam_pos = detect_cam_pos(required_landmarks)
         
         if any(landmark[4] < 0.95 for landmark in required_landmarks):
-            cv2.putText(self.annotated, "Please adjust the camera for better visibility.", (10, 60), self.font, 1.25, self.red, 2, self.line)
+            cv2.putText(self.annotated, "Please adjust the camera for better visibility.", (10, 60), self.font, self.font_size, self.red, 2, self.line)
         else:
             depth_achieved = self._check_depth(depth_achieved)
-            if 155 > self.right_knee_angle and 155 > self.left_knee_angle:
+            if self.init_pos_threshold > self.right_knee_angle and self.init_pos_threshold > self.left_knee_angle:
                 self._check_knee_tracking()
                 if self.cam_pos == "left" or self.cam_pos == "right":
                     self._check_back_form()
@@ -59,12 +61,14 @@ class SquatFormChecker:
 
     def _check_depth(self, depth_achieved):
         # Check if the squat depth is adequate and do not check if depth already achieved or if the person is upright
-        if 160 > self.right_knee_angle and 160 > self.left_knee_angle:
-            if self.right_knee_angle <= 110 and self.left_knee_angle <= 110:
+        depth_achieved_threshold = 110
+
+        if self.init_pos_threshold > self.right_knee_angle and self.init_pos_threshold > self.left_knee_angle:
+            if self.right_knee_angle <= depth_achieved_threshold and self.left_knee_angle <= depth_achieved_threshold:
                 depth_achieved = True
-                cv2.putText(self.annotated, "DEPTH: Good squat depth achieved.", (10, 60), self.font, 1.25, self.green, 2, self.line)
+                cv2.putText(self.annotated, "DEPTH: Good squat depth achieved.", (10, 60), self.font, self.font_size, self.green, 2, self.line)
             elif depth_achieved == False:
-                cv2.putText(self.annotated, "DEPTH: Try to squat lower to achieve better depth.", (10, 60), self.font, 1.25, self.red, 2, self.line)
+                cv2.putText(self.annotated, "DEPTH: Try to squat lower to achieve better depth.", (10, 60), self.font, self.font_size, self.red, 2, self.line)
         else:
             depth_achieved = False
 
@@ -82,8 +86,9 @@ class SquatFormChecker:
         left_knee_projection = abs(np.dot(self.left_heel[:3] - self.left_knee[:3], norm_left_foot_direction))
 
         # Threshold: buffer against measurement noise (3% of foot length)
-        threshold_right = 0.03 * right_foot_length
-        threshold_left = 0.03 * left_foot_length
+        threshold = 0.03
+        threshold_right = threshold * right_foot_length
+        threshold_left = threshold * left_foot_length
 
         right_over_toes = right_knee_projection > (right_foot_length + threshold_right)
         left_over_toes = left_knee_projection > (left_foot_length + threshold_left)
@@ -105,9 +110,9 @@ class SquatFormChecker:
         
         if warnings:
             text = "KNEE TRACKING: Knees are " + " and ".join(warnings)
-            cv2.putText(self.annotated, text, (10, 100), self.font, 1.25, self.red, 2, cv2.LINE_AA)
+            cv2.putText(self.annotated, text, (10, 100), self.font, self.font_size, self.red, 2, cv2.LINE_AA)
         else:
-            cv2.putText(self.annotated, "KNEE TRACKING: Knees are properly aligned", (10, 100), self.font, 1.25, self.green, 2, cv2.LINE_AA)
+            cv2.putText(self.annotated, "KNEE TRACKING: Knees are properly aligned", (10, 100), self.font, self.font_size, self.green, 2, cv2.LINE_AA)
             
     def _check_back_form(self):
         hip_below_left = [self.left_hip[0], self.left_hip[1] - 1, self.left_hip[2]]
@@ -115,8 +120,10 @@ class SquatFormChecker:
         torso_inclination_left = calculate_angle(self.left_shoulder[:3], self.left_hip[:3], hip_below_left)
         torso_inclination_right = calculate_angle(self.right_shoulder[:3], self.right_hip[:3], hip_below_right)
 
-        if torso_inclination_left < 55 and torso_inclination_right < 55:
-            cv2.putText(self.annotated, "BACK FORM: Good back form.", (10, 140), self.font, 1.25, self.green, 2, cv2.LINE_AA)
+        torso_inclination_threshold = 55
+
+        if torso_inclination_left < torso_inclination_threshold and torso_inclination_right < torso_inclination_threshold:
+            cv2.putText(self.annotated, "BACK FORM: Good back form.", (10, 140), self.font, self.font_size, self.green, 2, cv2.LINE_AA)
         
         else:
-            cv2.putText(self.annotated, "BACK FORM: Try to keep the trunk upright.", (10, 140), self.font, 1.25, self.red, 2, cv2.LINE_AA)
+            cv2.putText(self.annotated, "BACK FORM: Try to keep the trunk upright.", (10, 140), self.font, self.font_size, self.red, 2, cv2.LINE_AA)
