@@ -18,6 +18,7 @@ class SquatFormChecker:
         # Set up for text display
         self.font = cv2.FONT_HERSHEY_SIMPLEX
         self.font_size = 1.25
+        self.thickness = 2
         self.line = cv2.LINE_AA
         self.green = (0, 255, 0)
         self.red = (0, 0, 255)
@@ -49,7 +50,7 @@ class SquatFormChecker:
         self.cam_pos = detect_cam_pos(required_landmarks)
         
         if any(landmark[4] < 0.95 for landmark in required_landmarks):
-            cv2.putText(self.annotated, "Please adjust the camera for better visibility.", (10, 60), self.font, self.font_size, self.red, 2, self.line)
+            cv2.putText(self.annotated, "Please adjust the camera for better visibility.", (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
         else:
             depth_achieved = self._check_depth(depth_achieved)
             if self.init_pos_threshold > self.right_knee_angle and self.init_pos_threshold > self.left_knee_angle:
@@ -66,15 +67,18 @@ class SquatFormChecker:
         if self.init_pos_threshold > self.right_knee_angle and self.init_pos_threshold > self.left_knee_angle:
             if self.right_knee_angle <= depth_achieved_threshold and self.left_knee_angle <= depth_achieved_threshold:
                 depth_achieved = True
-                cv2.putText(self.annotated, "DEPTH: Good squat depth achieved.", (10, 60), self.font, self.font_size, self.green, 2, self.line)
+                cv2.putText(self.annotated, "DEPTH: Good squat depth achieved.", (10, 60), self.font, self.font_size, self.green, self.thickness, self.line)
             elif depth_achieved == False:
-                cv2.putText(self.annotated, "DEPTH: Try to squat lower to achieve better depth.", (10, 60), self.font, self.font_size, self.red, 2, self.line)
+                cv2.putText(self.annotated, "DEPTH: Try to squat lower to achieve better depth.", (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
         else:
             depth_achieved = False
 
         return depth_achieved
 
     def _check_knee_tracking(self): 
+
+        feedback_position = (10, 100)
+
         # Values for knee tracking over toes calculation by projecting the knee position onto the foot direction vector
         right_foot_length = np.linalg.norm(self.right_toe[:3] - self.right_heel[:3])
         left_foot_length = np.linalg.norm(self.left_toe[:3] - self.left_heel[:3])
@@ -110,11 +114,14 @@ class SquatFormChecker:
         
         if warnings:
             text = "KNEE TRACKING: Knees are " + " and ".join(warnings)
-            cv2.putText(self.annotated, text, (10, 100), self.font, self.font_size, self.red, 2, cv2.LINE_AA)
+            cv2.putText(self.annotated, text, feedback_position, self.font, self.font_size, self.red, self.thickness, self.line)
         else:
-            cv2.putText(self.annotated, "KNEE TRACKING: Knees are properly aligned", (10, 100), self.font, self.font_size, self.green, 2, cv2.LINE_AA)
+            cv2.putText(self.annotated, "KNEE TRACKING: Knees are properly aligned", feedback_position, self.font, self.font_size, self.green, self.thickness, self.line)
             
     def _check_back_form(self):
+        
+        feedback_position = (10, 140)
+
         hip_below_left = [self.left_hip[0], self.left_hip[1] - 1, self.left_hip[2]]
         hip_below_right = [self.right_hip[0], self.right_hip[1] - 1, self.right_hip[2]]
         torso_inclination_left = calculate_angle(self.left_shoulder[:3], self.left_hip[:3], hip_below_left)
@@ -123,7 +130,7 @@ class SquatFormChecker:
         torso_inclination_threshold = 55
 
         if torso_inclination_left < torso_inclination_threshold and torso_inclination_right < torso_inclination_threshold:
-            cv2.putText(self.annotated, "BACK FORM: Good back form.", (10, 140), self.font, self.font_size, self.green, 2, cv2.LINE_AA)
+            cv2.putText(self.annotated, "BACK FORM: Good back form.", feedback_position, self.font, self.font_size, self.green, self.thickness, self.line)
         
         else:
-            cv2.putText(self.annotated, "BACK FORM: Try to keep the trunk upright.", (10, 140), self.font, self.font_size, self.red, 2, cv2.LINE_AA)
+            cv2.putText(self.annotated, "BACK FORM: Try to keep the trunk upright.", feedback_position, self.font, self.font_size, self.red, self.thickness, self.line)

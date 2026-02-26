@@ -18,6 +18,7 @@ class BentOverRowFormChecker:
         # Set up for text display
         self.font = cv2.FONT_HERSHEY_SIMPLEX
         self.font_size = 1.25
+        self.thickness = 2
         self.line = cv2.LINE_AA
         self.green = (0, 255, 0)
         self.red = (0, 0, 255)
@@ -46,7 +47,7 @@ class BentOverRowFormChecker:
         self.cam_pos = detect_cam_pos(required_landmarks)
 
         if any(landmark[4] < 0.95 for landmark in required_landmarks):
-            cv2.putText(self.annotated, "Please adjust the camera for better visibility.", (10, 60), self.font, self.font_size, self.red, 2, self.line)
+            cv2.putText(self.annotated, "Please adjust the camera for better visibility.", (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
         else:
             correct_back_form = self._check_back_form(correct_back_form)
 
@@ -60,6 +61,9 @@ class BentOverRowFormChecker:
     
 
     def _check_back_form(self, correct_back_form):
+
+        feedback_position = (10, 100)
+
         hip_below_left = [self.left_hip[0], self.left_hip[1] - 1, self.left_hip[2]]
         hip_below_right = [self.right_hip[0], self.right_hip[1] - 1, self.right_hip[2]]
 
@@ -74,18 +78,21 @@ class BentOverRowFormChecker:
 
         # Check if the torso is too horizontal or too upright and provide feedback accordingly with additional thresholds for bent-over rows
         if torso_lean_left > torso_lean_threshold or torso_lean_right > torso_lean_threshold:
-            cv2.putText(self.annotated, "BACK FORM: Try to keep the trunk more horizontal.", (10, 100), self.font, self.font_size, self.red, 2, self.line)
+            cv2.putText(self.annotated, "BACK FORM: Try to keep the trunk more horizontal.", feedback_position, self.font, self.font_size, self.red, self.thickness, self.line)
             correct_back_form = False
         elif torso_inclination_left > torso_inclination_threshold or torso_inclination_right > torso_inclination_threshold:
-            cv2.putText(self.annotated, "BACK FORM: Try to keep the trunk in a neutral position.", (10, 100), self.font, self.font_size, self.red, 2, self.line)
+            cv2.putText(self.annotated, "BACK FORM: Try to keep the trunk in a neutral position.", feedback_position, self.font, self.font_size, self.red, self.thickness, self.line)
         else:
-            cv2.putText(self.annotated, "BACK FORM: Good back form.", (10, 100), self.font, self.font_size, self.green, 2, self.line)
+            cv2.putText(self.annotated, "BACK FORM: Good back form.", feedback_position, self.font, self.font_size, self.green, self.thickness, self.line)
             correct_back_form = True
 
         return correct_back_form
             
 
     def _check_range_of_motion(self, rom_achieved, init_pos):
+
+        feedback_position = (10, 140)
+
         left_elbow_angle = calculate_angle(self.left_shoulder[:3], self.left_elbow[:3], self.left_wrist[:3])
         right_elbow_angle = calculate_angle(self.right_shoulder[:3], self.right_elbow[:3], self.right_wrist[:3])
 
@@ -95,15 +102,15 @@ class BentOverRowFormChecker:
         if left_elbow_angle < elbow_flexion_threshold and right_elbow_angle < elbow_flexion_threshold:
             init_pos = False
             if self.cam_pos == "left" and left_elbow_angle < range_of_motion_threshold and init_pos == False:
-                cv2.putText(self.annotated, "RANGE OF MOTION: Good range of motion.", (10, 140), self.font, self.font_size, self.green, 2, self.line)
+                cv2.putText(self.annotated, "RANGE OF MOTION: Good range of motion.", feedback_position, self.font, self.font_size, self.green, self.thickness, self.line)
                 rom_achieved = True
             elif self.cam_pos == "right" and right_elbow_angle < range_of_motion_threshold and init_pos == False:
-                cv2.putText(self.annotated, "RANGE OF MOTION: Good range of motion.", (10, 140), self.font, self.font_size, self.green, 2, self.line)
+                cv2.putText(self.annotated, "RANGE OF MOTION: Good range of motion.", feedback_position, self.font, self.font_size, self.green, self.thickness, self.line)
                 rom_achieved = True
             elif rom_achieved != True and init_pos == False:
-                cv2.putText(self.annotated, "RANGE OF MOTION: Try to pull the weights higher for a better muscle activation.", (10, 140), self.font, self.font_size, self.red, 2, self.line)
+                cv2.putText(self.annotated, "RANGE OF MOTION: Try to pull the weights higher for a better muscle activation.", feedback_position, self.font, self.font_size, self.red, self.thickness, self.line)
             else:
-                cv2.putText(self.annotated, "RANGE OF MOTION: Try to lower the weights until your arms are fully extended.", (10, 140), self.font, self.font_size, self.red, 2, self.line)
+                cv2.putText(self.annotated, "RANGE OF MOTION: Try to lower the weights until your arms are fully extended.", feedback_position, self.font, self.font_size, self.red, self.thickness, self.line)
         else:
             init_pos = True
             rom_achieved = False
@@ -111,6 +118,9 @@ class BentOverRowFormChecker:
         return rom_achieved, init_pos
 
     def _check_grip_width(self):
+
+        feedback_position = (10, 140)
+
         left_dist_elbow_wrist = np.linalg.norm(self.left_elbow[:3] - self.left_wrist[:3])
         right_dist_elbow_wrist = np.linalg.norm(self.right_elbow[:3] - self.right_wrist[:3])
         dist_wrists = np.linalg.norm(self.left_wrist[:3] - self.right_wrist[:3])
@@ -119,10 +129,10 @@ class BentOverRowFormChecker:
         narrow_threshold = 1.5
 
         if dist_wrists > width_threshold * left_dist_elbow_wrist or dist_wrists > width_threshold * right_dist_elbow_wrist:
-            cv2.putText(self.annotated, "GRIP WIDTH: Try to hold the barbell narrower", (10, 180), self.font, self.font_size, self.red, 2, self.line)
+            cv2.putText(self.annotated, "GRIP WIDTH: Try to hold the barbell narrower", feedback_position, self.font, self.font_size, self.red, self.thickness, self.line)
         elif dist_wrists < narrow_threshold * left_dist_elbow_wrist and dist_wrists < narrow_threshold * right_dist_elbow_wrist:
-            cv2.putText(self.annotated, "GRIP WIDTH: Try to hold the barbell wider", (10, 180), self.font, self.font_size, self.red, 2, self.line)
+            cv2.putText(self.annotated, "GRIP WIDTH: Try to hold the barbell wider", feedback_position, self.font, self.font_size, self.red, self.thickness, self.line)
         else:
-            cv2.putText(self.annotated, "GRIP WIDTH: Good grip width.", (10, 180), self.font, self.font_size, self.green, 2, self.line)
+            cv2.putText(self.annotated, "GRIP WIDTH: Good grip width.", feedback_position, self.font, self.font_size, self.green, self.thickness, self.line)
         
     
