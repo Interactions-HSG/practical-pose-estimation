@@ -11,7 +11,7 @@ def main():
         print("Exiting program.")
         return 
     
-    exercise = input("Enter exercise type ('squat', 'benchpress', 'bentover'): ")
+    exercise = input("Enter exercise type ('squat', 'bench', 'bent'): ")
 
     pose_estimator = PoseEstimator(mode=mode)
     squat_checker = SquatFormChecker() 
@@ -35,12 +35,12 @@ def main():
             match exercise:
                 case 'squat':
                     depth_achieved = squat_checker.check_Squat_form(annotated, points, depth_achieved)
-                case 'benchpress':
-                    benchpress_checker.check_benchpress_form(annotated, points)
-                case 'bentover':
+                case 'bench':
+                    rom_achieved, init_pos = benchpress_checker.check_benchpress_form(annotated, points, rom_achieved, init_pos, points_2d)
+                case 'bent':
                     correct_back_form, rom_achieved, init_pos = bentOver_checker.check_bentover_form(annotated, points, correct_back_form, rom_achieved, init_pos, points_2d)
                 case _:
-                    print("Invalid exercise type. Please enter 'squat', 'benchpress', or 'bentover'.")
+                    print("Invalid exercise type. Please enter 'squat', 'bench', or 'bent'.")
                     break
         
         cv2.imshow("Visual Spotter", annotated)

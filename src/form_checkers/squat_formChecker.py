@@ -67,9 +67,12 @@ class SquatFormChecker:
         if self.init_pos_threshold > self.right_knee_angle and self.init_pos_threshold > self.left_knee_angle:
             if self.right_knee_angle <= depth_achieved_threshold and self.left_knee_angle <= depth_achieved_threshold:
                 depth_achieved = True
-                cv2.putText(self.annotated, "DEPTH: Good squat depth achieved.", (10, 60), self.font, self.font_size, self.green, self.thickness, self.line)
+                color = self.green
+                message = "DEPTH: Good squat depth achieved."
             elif depth_achieved == False:
-                cv2.putText(self.annotated, "DEPTH: Try to squat lower to achieve better depth.", (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
+                color = self.red
+                message = "DEPTH: Try to squat lower to achieve better depth."
+            cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, color, self.thickness, self.line)
         else:
             depth_achieved = False
 
@@ -113,10 +116,12 @@ class SquatFormChecker:
                 warnings.append("caving inwards")
         
         if warnings:
-            text = "KNEE TRACKING: Knees are " + " and ".join(warnings)
-            cv2.putText(self.annotated, text, feedback_position, self.font, self.font_size, self.red, self.thickness, self.line)
+            message = "KNEE TRACKING: Knees are " + " and ".join(warnings)
+            color = self.red
         else:
-            cv2.putText(self.annotated, "KNEE TRACKING: Knees are properly aligned", feedback_position, self.font, self.font_size, self.green, self.thickness, self.line)
+            color = self.green
+            message = "KNEE TRACKING: Knees are properly aligned"
+        cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
             
     def _check_back_form(self):
         
@@ -130,7 +135,9 @@ class SquatFormChecker:
         torso_inclination_threshold = 55
 
         if torso_inclination_left < torso_inclination_threshold and torso_inclination_right < torso_inclination_threshold:
-            cv2.putText(self.annotated, "BACK FORM: Good back form.", feedback_position, self.font, self.font_size, self.green, self.thickness, self.line)
-        
+            color = self.green
+            message = "BACK FORM: Good back form."      
         else:
-            cv2.putText(self.annotated, "BACK FORM: Try to keep the trunk upright.", feedback_position, self.font, self.font_size, self.red, self.thickness, self.line)
+            color = self.red
+            message = "BACK FORM: Try to keep the trunk upright."
+        cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)

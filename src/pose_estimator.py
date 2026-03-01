@@ -46,7 +46,7 @@ class PoseEstimator:
 
     def _open_video_source(self):
         if self.mode == '1':
-            cap = cv2.VideoCapture('../videos/test8.mov')
+            cap = cv2.VideoCapture('../videos/test3.mov')
         else:
             cap = cv2.VideoCapture(0)
 
