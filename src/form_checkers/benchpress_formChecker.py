@@ -6,7 +6,6 @@ class BenchpressFormChecker:
     '''
     This class checks the form for benchpress exercises.
     '''
-
     def check_benchpress_form(self, annotated, landmarks: np.array, rom_achieved, init_pos, landmarks_2d):
         if landmarks is None or landmarks.shape[0] != 33:
             print("Insufficient landmarks for benchpress form check.")
@@ -39,18 +38,20 @@ class BenchpressFormChecker:
         self.left_elbow_2d = landmarks_2d[13]
         self.right_elbow_2d = landmarks_2d[14]
 
-        required_landmarks = [self.right_shoulder, self.right_elbow, self.right_wrist,
-                              self.left_shoulder, self.left_elbow, self.left_wrist]
+        required_landmarks = [self.right_elbow, self.right_wrist, self.left_elbow, self.left_wrist]
         
-        self.cam_pos = detect_cam_pos(required_landmarks)
+        self.cam_pos = detect_cam_pos(landmarks, False)
+
+        print(f"Camera position detected: {self.cam_pos}")
 
         if any(landmark[4] < 0.95 for landmark in required_landmarks):
             cv2.putText(self.annotated, "Please adjust the camera for better visibility.", (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
         else:
 
             if self.cam_pos == "front":
-                self._check_grip_width() 
-            rom_achieved, init_pos = self._check_range_of_motion(rom_achieved, init_pos)
+                self._check_grip_width()
+            elif self.cam_pos in ["left", "right"]:
+                rom_achieved, init_pos = self._check_range_of_motion(rom_achieved, init_pos)
         
         return rom_achieved, init_pos
 
@@ -94,10 +95,6 @@ class BenchpressFormChecker:
             rom_achieved = False
 
         return rom_achieved, init_pos
-    
-
-    def _check_back_form(self):
-        return
     
     def _check_grip_width(self):
         feedback_position = (10, 100)

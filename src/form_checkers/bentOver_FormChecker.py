@@ -58,8 +58,6 @@ class BentOverRowFormChecker:
 
         return  correct_back_form, rom_achieved, init_pos
 
-    
-
     def _check_back_form(self, correct_back_form):
 
         feedback_position = (10, 100)
