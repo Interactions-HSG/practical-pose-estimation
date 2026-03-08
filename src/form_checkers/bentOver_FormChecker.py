@@ -8,7 +8,7 @@ class BentOverRowFormChecker:
     providing real-time feedback on the form.
     '''
 
-    def check_bentover_form(self, annotated, landmarks: np.array, correct_back_form, rom_achieved, init_pos, landmarks_2d):
+    def check_bentover_form(self, annotated, landmarks: np.array, correct_back_form, rom_achieved, init_pos):
         if landmarks is None or landmarks.shape[0] != 33:
             print("Insufficient landmarks for bent-over row form check.")
             return annotated, correct_back_form, rom_achieved, init_pos
@@ -35,10 +35,6 @@ class BentOverRowFormChecker:
         self.right_wrist = landmarks[16]
         self.right_hip = landmarks[24]
         self.right_knee = landmarks[26]    
-
-        self.left_shoulder_2d = landmarks_2d[11]
-        self.right_shoulder_2d = landmarks_2d[12]
-
 
         # Check if required landmarks have sufficient visibility
         required_landmarks = [self.right_shoulder, self.right_elbow, self.right_wrist, self.right_hip, self.right_knee, 

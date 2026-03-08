@@ -21,10 +21,9 @@ def detect_cam_pos(landmarks: list, standing = True):
     right_landmarks = landmarks[0:mid]
     left_landmarks = landmarks[mid:]
 
-    right_visibility = [lm[3] for lm in right_landmarks]
-    left_visibility = [lm[3] for lm in left_landmarks]
-
     if standing:
+        right_visibility = [lm[3] for lm in right_landmarks]
+        left_visibility = [lm[3] for lm in left_landmarks]
         if np.mean(right_visibility) > 0.95 and np.mean(left_visibility) > 0.95:
             return "front"
         elif np.mean(right_visibility) > 0.95:
@@ -33,22 +32,14 @@ def detect_cam_pos(landmarks: list, standing = True):
             return "left"
         else:
             return "unknown"
-    elif standing == False:
-        #Visibility of the upper body changes from the front if a person is lying down, so the visibility of the lower body needs to be checked instead
-        left_knee = landmarks[25]
-        left_ankle = landmarks[27]
-
-        right_knee = landmarks[26]
-        right_ankle = landmarks[28]
-
-        right_visibility_front = [right_knee[3], right_ankle[3]]
-        left_visibility_front = [left_knee[3], left_ankle[3]]
-
-        if np.mean(right_visibility_front) > 0.95 and np.mean(left_visibility_front) > 0.95:
-            return "front"
-        elif np.mean(right_visibility) > 0.95:
-            return "left"
-        elif np.mean(left_visibility) > 0.95:
+    elif standing == False:  
+        # Count the number of confidently detected keypoints on each side as YOLO does not have a visibility value
+        right_count = sum(1 for lm in right_landmarks if lm[2] > 0.7)  
+        left_count = sum(1 for lm in left_landmarks if lm[2] > 0.7)
+        
+        if right_count > left_count * 1.2:
             return "right"
+        elif left_count > right_count * 1.2:
+            return "left"
         else:
-            return "unknown"
+            return "front"

@@ -2,3 +2,6 @@ opencv-python
 matplotlib
 mediapipe
 numpy
+ultralytics
+google-genai
+python-dotenv

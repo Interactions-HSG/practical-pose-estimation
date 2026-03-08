@@ -138,7 +138,7 @@ class PoseEstimator:
         annotated = self._draw_landmarks(frame, self.latest_result)
         return annotated   
 
-    def cleanup(self):
+    def _cleanup(self):
         self.video.release()
         cv2.destroyAllWindows()
         self.landmarker.close()
