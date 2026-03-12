@@ -5,3 +5,5 @@ numpy
 ultralytics
 google-genai
 python-dotenv
+gTTs
+pygame

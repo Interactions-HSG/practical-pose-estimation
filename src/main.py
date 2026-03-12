@@ -2,93 +2,138 @@ from pose_estimator import PoseEstimator
 from pose_estimator_supine import PoseEstimatorSupine
 from form_checkers import SquatFormChecker, BenchpressFormChecker, BentOverRowFormChecker
 import cv2 
+import os
+import urllib.request
+
 
 def main():
-
+    video_dir = create_required_directories('videos')
+    trained_models_dir = create_required_directories('trained_models')
+    feedback_dir = create_required_directories('src/feedback')
     # Get mode from user input
-    mode = input("Enter mode ('1' for video file, '2' for live webcam): ")
+    mode = None
+    while mode is None:
+        mode = input("Enter mode ('1' for video file, '2' for live webcam): ")
 
-    if mode == 'q':
-        print("Exiting program.")
-        return 
-    
+        if mode == 'q':
+            print("Exiting program.")
+            return
+        
+        if mode not in ['1', '2', 'q']:
+            print("Invalid mode. Please enter '1' for video file, '2' for live webcam, or 'q' to quit.")
+            mode = None
+        
     # Exercises split and stored in lists for extensibility
     available_exercises = ['squat', 'bent']
     available_supine_exercises = ['bench']
     exercise_display = ', '.join(map(str, available_exercises + available_supine_exercises))
-    chosen_exercise = input(f"Enter exercise type {exercise_display}: ")
 
-    if chosen_exercise == 'q':
-        print("Exiting program.")
-        return
+    tts = None
+    while tts is None:
+        tts = input(f"Do you want audio feedback? (y/n): ")
+        if tts not in ['y', 'n']:
+            print("Invalid input. Please enter 'y' for yes or 'n' for no.")
+            tts = None
+        
+        if tts == 'y':
+            tts = True
+        elif tts == 'n':
+            tts = False
+
+
+    chosen_exercise = None
+    while chosen_exercise is None:
+        chosen_exercise = input(f"Enter exercise type ({exercise_display}): ")
+        
+        if chosen_exercise == 'q':
+            print("Exiting program.")
+            return
+        
+        if chosen_exercise not in available_exercises + available_supine_exercises:
+            print(f"Invalid exercise type. Please enter one of: {exercise_display}")
+            chosen_exercise = None
 
     #Depending on the user choice, initialize the appropriate Pose Estimation Model
     if chosen_exercise in available_exercises:
-        pose_estimator = PoseEstimator(mode=mode)
+        pose_model_path = os.path.join(trained_models_dir, 'pose_landmarker_full.task')
+        download_packets(pose_model_path)
+        pose_estimator = PoseEstimator(mode=mode, model_path=pose_model_path)
+
     if chosen_exercise in available_supine_exercises:
         pose_estimator_supine = PoseEstimatorSupine(mode=mode)
 
     #Form Checkers
-    squat_checker = SquatFormChecker() 
-    benchpress_checker = BenchpressFormChecker()
-    bentOver_checker = BentOverRowFormChecker()
+    squat_checker = SquatFormChecker(tts) 
+    benchpress_checker = BenchpressFormChecker(tts)
+    bentOver_checker = BentOverRowFormChecker(tts)
 
-    depth_achieved = False 
-    correct_back_form = False
     rom_achieved = False
     init_pos = True 
 
 
     print("Starting pose estimation...")
     while True:
-        try:
-            #Run the MediaPipe Model for standing exercises
-            if chosen_exercise in available_exercises:
-                annotated = pose_estimator.run()
-                if annotated is None:
-                    break
-                points = pose_estimator.get_landmarks_result()
-                if points is not None:
-                    match chosen_exercise:
-                        case 'squat':
-                            depth_achieved = squat_checker.check_Squat_form(annotated, points, depth_achieved)
-                        case 'bent':
-                            correct_back_form, rom_achieved, init_pos = bentOver_checker.check_bentover_form(annotated, points, correct_back_form, rom_achieved, init_pos)
-                        case _:
-                            print(f"Invalid exercise type. Please enter {exercise_display}.")
-                            break
 
-            #Run the YOLO Model for supine exercises for higher accuracy
-            elif chosen_exercise in available_supine_exercises:
-                annotated = pose_estimator_supine.run()
-                if annotated is None:
-                    break
-                points = pose_estimator_supine.get_landmarks_result()
-                if points is not None:
-                    match chosen_exercise:
-                        case 'bench':
-                            # YOLO can return either (17, 3) for one person or (num_people, 17, 3) for many.
-                            if points.ndim == 2:
-                                person_points = points
-                            else:
-                                best_idx = int(points[:, :, 2].mean(axis=1).argmax())
-                                person_points = points[best_idx]
-                            rom_achieved, init_pos = benchpress_checker.check_benchpress_form(annotated, person_points, rom_achieved, init_pos)
-                        case _:
-                            print(f"Invalid exercise type. Please enter {exercise_display}.")
-                            break            
-        except Exception as e:
-            print(f"Error during pose estimation: {e}")
-            continue
-        
+        #Run the MediaPipe Model for standing exercises
+        if chosen_exercise in available_exercises:
+            annotated = pose_estimator.run()
+            if annotated is None:
+                break
+            points = pose_estimator.get_landmarks_result()
+            if points is not None:
+                match chosen_exercise:
+                    case 'squat':
+                        rom_achieved, init_pos = squat_checker.check_Squat_form(annotated, points, rom_achieved, init_pos)
+                    case 'bent':
+                        rom_achieved, init_pos = bentOver_checker.check_bentover_form(annotated, points, rom_achieved, init_pos)
+
+        #Run the YOLO Model for supine exercises for higher accuracy
+        elif chosen_exercise in available_supine_exercises:
+            annotated = pose_estimator_supine.run()
+            if annotated is None:
+                break
+            points = pose_estimator_supine.get_landmarks_result()
+            if points is not None:
+                match chosen_exercise:
+                    case 'bench':
+                        # YOLO can return either (17, 3) for one person or (num_people, 17, 3) for many.
+                        if points.ndim == 2:
+                            person_points = points
+                        else:
+                            best_idx = int(points[:, :, 2].mean(axis=1).argmax())
+                            person_points = points[best_idx]
+                        rom_achieved, init_pos = benchpress_checker.check_benchpress_form(annotated, person_points, rom_achieved, init_pos)
+    
         cv2.imshow("Visual Spotter", annotated)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-    
     if chosen_exercise in available_exercises:
         pose_estimator._cleanup()
     if chosen_exercise in available_supine_exercises:
         pose_estimator_supine._cleanup()
+
+
+def download_packets(target_path):
+    if os.path.exists(target_path):
+        return
+    
+    print(f"Model not found at '{target_path}'. Downloading...")
+    download_url = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task"
+    try:
+        urllib.request.urlretrieve(download_url, target_path)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to download model from {download_url}: {exc}") from exc
+
+    print(f"Model downloaded: {target_path}")
+
+def create_required_directories(target_path):
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    new_directory = os.path.join(project_root, target_path)
+    if not os.path.exists(new_directory):
+        os.makedirs(new_directory)
+        print(f"Directory '{new_directory}' created.")
+    
+    return new_directory
 
 if __name__ == "__main__":
     main()
