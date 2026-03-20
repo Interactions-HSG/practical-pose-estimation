@@ -1,10 +1,9 @@
 from pose_estimator import PoseEstimator
 from pose_estimator_supine import PoseEstimatorSupine
 from form_checkers import SquatFormChecker, BenchpressFormChecker, BentOverRowFormChecker
+from init_functions import download_packets, create_required_directories
 import cv2 
 import os
-import urllib.request
-
 
 def main():
     video_dir = create_required_directories('videos')
@@ -111,29 +110,6 @@ def main():
         pose_estimator._cleanup()
     if chosen_exercise in available_supine_exercises:
         pose_estimator_supine._cleanup()
-
-
-def download_packets(target_path):
-    if os.path.exists(target_path):
-        return
-    
-    print(f"Model not found at '{target_path}'. Downloading...")
-    download_url = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task"
-    try:
-        urllib.request.urlretrieve(download_url, target_path)
-    except Exception as exc:
-        raise RuntimeError(f"Failed to download model from {download_url}: {exc}") from exc
-
-    print(f"Model downloaded: {target_path}")
-
-def create_required_directories(target_path):
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    new_directory = os.path.join(project_root, target_path)
-    if not os.path.exists(new_directory):
-        os.makedirs(new_directory)
-        print(f"Directory '{new_directory}' created.")
-    
-    return new_directory
 
 if __name__ == "__main__":
     main()

@@ -12,12 +12,15 @@ class PoseEstimatorSupine:
           (5, 11), (6, 12), (11, 12), (11, 13), (12, 14), (13, 15), (14, 16)
     ]
 
-    def __init__(self, mode: str):
+    def __init__(self, mode: str, open_camera: bool = True):
         self.source = '../videos/test11.mov'
         self.results = None
         self.mode = mode
         self.model = YOLO('../trained_models/yolo26s-pose.pt') 
-        self.video = self._open_video_source()
+        if open_camera:
+            self.video = self._open_video_source()
+        else:
+            self.video = None
 
 
     def _open_video_source(self):
@@ -32,26 +35,39 @@ class PoseEstimatorSupine:
         return cap
 
     def _process_frame(self):
+        if self.video is None:
+            return None
+
         status, frame = self.video.read()
         if not status:
             return None
-        try:
-            # Set verbose false to reduce console output
-            self.results = self.model.predict(source=frame, conf=0.5, verbose=False)
-        except Exception as e:
-            print(f"Error in prediction: {e}")
-            self.results = None
 
+        self.results = self._predict(frame)
         return frame
 
-    def _draw_landmarks(self, image):
-        if not self.results:
+    def _predict(self, frame):
+        try:
+            # Set verbose false to reduce console output
+            return self.model.predict(source=frame, conf=0.5, verbose=False)
+        except Exception as e:
+            print(f"Error in prediction: {e}")
+            return None
+
+    def process_external_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Process one frame provided externally (e.g., frontend WebSocket)."""
+        self.results = self._predict(frame)
+        return self._draw_landmarks(frame, self.results)
+
+    def _draw_landmarks(self, image, results=None):
+        if results is None:
+            results = self.results
+        if not results:
             print("No results to draw.")
             return image
         
         annotated_frame = image.copy()
         
-        for result in self.results:
+        for result in results:
             if result.keypoints is None or result.keypoints.data is None:
                 continue
 
@@ -112,6 +128,7 @@ class PoseEstimatorSupine:
         return annotated   
 
     def _cleanup(self):
-        self.video.release()
+        if self.video is not None:
+            self.video.release()
         cv2.destroyAllWindows()
         

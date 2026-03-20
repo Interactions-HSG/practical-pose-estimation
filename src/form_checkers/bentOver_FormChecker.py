@@ -34,6 +34,12 @@ class BentOverRowFormChecker:
         self.last_audio_end_time = 0
         self.last_filepath = None
         self.green_queue = None
+        self.detected = False
+
+        # Run a one-time startup delay after the first successful detection.
+        self.initial_detection_timer_seconds = 8.0
+        self.initial_detection_timer_started_at = None
+        self.initial_detection_timer_done = False
 
     def check_bentover_form(self, annotated, landmarks: np.array, rom_achieved, init_pos):
         if landmarks is None or landmarks.shape[0] != 33:
@@ -62,19 +68,37 @@ class BentOverRowFormChecker:
         self.cam_pos = detect_cam_pos(required_landmarks)
 
         if any(landmark[4] < 0.95 for landmark in required_landmarks):
-            message = "Please adjust the camera for better visibility."
-            cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
+            message = "Please adjust the camera until your whole body is visible."
+            #cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
 
             if self.tts:
-                self.last_audio_end_time, self.last_filepath, self.green_queue = play_audio_feedback(message, 'feedback/camera_feedback.mp3',
-                                                                                                self.last_audio_end_time, self.red, self.last_filepath, self.green_queue)
+                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(message, 'feedback/camera_feedback.mp3',
+                                                                                                    self.last_audio_end_time, self.red, self.last_filepath, self.green_queue, self.detected)
         else:
-            self._check_back_form()
+            message = "You have been detected!"
+            if self.tts:
+                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(message, 'feedback/camera_feedback.mp3',
+                                                                                                    self.last_audio_end_time, self.green, self.last_filepath, self.green_queue, self.detected)
 
-            if self.correct_back_form and (self.cam_pos == "left" or self.cam_pos == "right"):
-                rom_achieved, init_pos = self._check_range_of_motion(rom_achieved, init_pos)
-            elif self.correct_back_form and self.cam_pos == "front":
-                self._check_grip_width()
+            if self.detected:
+                if not self.initial_detection_timer_done:
+                    if self.initial_detection_timer_started_at is None:
+                        self.initial_detection_timer_started_at = time.monotonic()
+                        return rom_achieved, init_pos
+
+                    elapsed = time.monotonic() - self.initial_detection_timer_started_at
+                    if elapsed < self.initial_detection_timer_seconds:
+                        return rom_achieved, init_pos
+
+                    self.initial_detection_timer_done = True
+                    self.initial_detection_timer_started_at = None
+
+                self._check_back_form()
+
+                if self.correct_back_form and (self.cam_pos == "left" or self.cam_pos == "right"):
+                    rom_achieved, init_pos = self._check_range_of_motion(rom_achieved, init_pos)
+                elif self.correct_back_form and self.cam_pos == "front":
+                    self._check_grip_width()
 
         return rom_achieved, init_pos
 
@@ -115,15 +139,14 @@ class BentOverRowFormChecker:
             file_ending = ".mp3"
             
         
-        cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
+        #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
         if self.tts:
-            self.last_audio_end_time, self.last_filepath, self.green_queue = play_audio_feedback(audio_text, f'feedback/back_feedback{file_ending}', 
-                                                                            self.last_audio_end_time, color, self.last_filepath, self.green_queue)
+            self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(audio_text, f'feedback/back_feedback{file_ending}', 
+                                                                            self.last_audio_end_time, color, self.last_filepath, self.green_queue, self.detected)
 
             
 
     def _check_range_of_motion(self, rom_achieved, init_pos):
-
         feedback_position = (10, 140)
 
         left_elbow_angle = calculate_angle(self.left_shoulder[:3], self.left_elbow[:3], self.left_wrist[:3])
@@ -174,10 +197,10 @@ class BentOverRowFormChecker:
                 audio_text = f"{message}"
                 file_ending = "_lower.mp3"
 
-            cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
+            #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
             if self.tts:
-                self.last_audio_end_time, self.last_filepath, self.green_queue = play_audio_feedback(audio_text, f'feedback/bent_rom{file_ending}', 
-                                                                                self.last_audio_end_time, color, self.last_filepath, self.green_queue)
+                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(audio_text, f'feedback/bent_rom{file_ending}', 
+                                                                                                    self.last_audio_end_time, color, self.last_filepath, self.green_queue, self.detected)
         
         else:
             init_pos = True
@@ -214,10 +237,10 @@ class BentOverRowFormChecker:
             file_ending = ".mp3"
 
 
-        cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
+        #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
         if self.tts:
-            self.last_audio_end_time, self.last_filepath, self.green_queue = play_audio_feedback(audio_text, f'feedback/bent_grip{file_ending}',
-                                                                                self.last_audio_end_time, color, self.last_filepath, self.green_queue)  
+            self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(audio_text, f'feedback/bent_grip{file_ending}',
+                                                                                self.last_audio_end_time, color, self.last_filepath, self.green_queue, self.detected)
     
 
         

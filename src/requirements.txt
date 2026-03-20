@@ -7,3 +7,5 @@ google-genai
 python-dotenv
 gTTs
 pygame
+fastapi
+uvicorn

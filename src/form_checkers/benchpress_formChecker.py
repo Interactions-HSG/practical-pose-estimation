@@ -30,6 +30,12 @@ class BenchpressFormChecker:
         self.last_audio_end_time = 0
         self.last_filepath = None
         self.green_queue = None
+        self.detected = False
+
+        # Run a one-time startup delay after the first successful detection.
+        self.initial_detection_timer_seconds = 8.0
+        self.initial_detection_timer_started_at = None
+        self.initial_detection_timer_done = False
 
     def check_benchpress_form(self, annotated, landmarks: np.array, rom_achieved, init_pos):
         if landmarks is None or landmarks.shape[0] != 17:
@@ -55,21 +61,39 @@ class BenchpressFormChecker:
 
         # YOLO keypoints are [x, y, conf]. Require confident keypoints before feedback.
         if any(landmark[2] < 0.75 for landmark in required_landmarks):
-            message = "Please adjust the camera for better visibility."
-            cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
+            message = "Please adjust the camera until your whole body is visible."
+           # cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
 
             if self.tts:
-                self.last_audio_end_time, self.last_filepath, self.green_queue = play_audio_feedback(message, "feedback/camera_feedback.mp3", 
-                                                                                                self.last_audio_end_time, self.red, self.last_filepath, self.green_queue)
+                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(message, "feedback/camera_feedback.mp3", 
+                                                                                                    self.last_audio_end_time, self.red, self.last_filepath, self.green_queue, self.detected)
             return rom_achieved, init_pos
 
-        # Show both grip width and ROM feedback for benchpress YOLO setup.
-        if cam_pos == "front":
-            self._check_grip_width()
-            rom_achieved, init_pos = self._check_range_of_motion(rom_achieved, init_pos)
-        #elif cam_pos == "left" or cam_pos == "right":
-            # For side view --> AI feedback 
-        
+        else:
+            message = "You have been detected!"
+            if self.tts:
+                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(message, "feedback/camera_feedback.mp3", 
+                                                                                                    self.last_audio_end_time, self.green, self.last_filepath, self.green_queue, self.detected)
+            # Show both grip width and ROM feedback for benchpress YOLO setup.
+            if self.detected:
+                if not self.initial_detection_timer_done:
+                    if self.initial_detection_timer_started_at is None:
+                        self.initial_detection_timer_started_at = time.monotonic()
+                        return rom_achieved, init_pos
+
+                    elapsed = time.monotonic() - self.initial_detection_timer_started_at
+                    if elapsed < self.initial_detection_timer_seconds:
+                        return rom_achieved, init_pos
+
+                    self.initial_detection_timer_done = True
+                    self.initial_detection_timer_started_at = None
+
+                if cam_pos == "front":
+                    self._check_grip_width()
+                    rom_achieved, init_pos = self._check_range_of_motion(rom_achieved, init_pos)
+                #elif cam_pos == "left" or cam_pos == "right":
+                    # For side view --> AI feedback 
+            
         return rom_achieved, init_pos
 
     def _check_range_of_motion(self, rom_achieved, init_pos):
@@ -79,8 +103,8 @@ class BenchpressFormChecker:
         left_elbow_angle = calculate_angle(self.left_shoulder[:2], self.left_elbow[:2], self.left_wrist[:2])
         right_elbow_angle = calculate_angle(self.right_shoulder[:2], self.right_elbow[:2], self.right_wrist[:2])
 
-        cv2.putText(self.annotated, f"{int(left_elbow_angle)}", (int(self.left_elbow[0]), int(self.left_elbow[1])), self.font, self.font_size, self.green, self.thickness, self.line)
-        cv2.putText(self.annotated, f"{int(right_elbow_angle)}", (int(self.right_elbow[0]), int(self.right_elbow[1])), self.font, self.font_size, self.green, self.thickness, self.line)
+        # cv2.putText(self.annotated, f"{int(left_elbow_angle)}", (int(self.left_elbow[0]), int(self.left_elbow[1])), self.font, self.font_size, self.green, self.thickness, self.line)
+        # cv2.putText(self.annotated, f"{int(right_elbow_angle)}", (int(self.right_elbow[0]), int(self.right_elbow[1])), self.font, self.font_size, self.green, self.thickness, self.line)
 
         elbow_flexion_threshold = 145
         range_of_motion_threshold = 50
@@ -113,12 +137,12 @@ class BenchpressFormChecker:
                 audio_text = f"{message}. Please adjust your form"
                 file_ending = "_extended.mp3"
             
-            cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
+           # cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
 
 
             if self.tts:
-                self.last_audio_end_time, self.last_filepath, self.green_queue = play_audio_feedback(audio_text, f"feedback/benchpress_rom{file_ending}", 
-                                                                                                self.last_audio_end_time, color, self.last_filepath, self.green_queue)
+                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(audio_text, f"feedback/benchpress_rom{file_ending}", 
+                                                                                                self.last_audio_end_time, color, self.last_filepath, self.green_queue, self.detected)
         else:
             init_pos = True
             rom_achieved = False
@@ -149,8 +173,8 @@ class BenchpressFormChecker:
             message = "GRIP WIDTH: Good grip width"
             audio_text = f"{message}. Good job!"
             file_ending = ".mp3"
-        cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
+        #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
 
         if self.tts:
-            self.last_audio_end_time, self.last_filepath, self.green_queue = play_audio_feedback(audio_text, f"feedback/benchpress_grip{file_ending}", 
-                                                                                                self.last_audio_end_time, color, self.last_filepath, self.green_queue)
+            self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(audio_text, f"feedback/benchpress_grip{file_ending}", 
+                                                                                                self.last_audio_end_time, color, self.last_filepath, self.green_queue, self.detected)

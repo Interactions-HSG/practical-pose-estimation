@@ -15,7 +15,7 @@ class PoseEstimator:
         (27, 29), (28, 30), (29, 31), (30, 32), (27, 31), (28, 32),
     ]
 
-    def __init__(self, mode: str, model_path: str = '../trained_models/pose_landmarker_full.task'):
+    def __init__(self, mode: str, model_path: str = '../trained_models/pose_landmarker_full.task', open_camera: bool = True):
         self.model_path = model_path
         self.mode = mode
         self.latest_result = None
@@ -27,13 +27,21 @@ class PoseEstimator:
         self.PoseLandmarkerResult = vision.PoseLandmarkerResult
 
         self.landmarker = self._create_landmarker()
-        self.video = self._open_video_source()
+        if open_camera:
+            self.video = self._open_video_source()
+        else:
+            self.video = None
 
     def _create_landmarker(self):
         if self.mode == '1':
             options = self.PoseLandmarkerOptions(
                 base_options=self.BaseOptions(model_asset_path=self.model_path),
                 running_mode=self.VisionRunningMode.VIDEO
+            )
+        elif self.mode == 'image':
+            options = self.PoseLandmarkerOptions(
+                base_options=self.BaseOptions(model_asset_path=self.model_path),
+                running_mode=self.VisionRunningMode.IMAGE
             )
         else:
             options = self.PoseLandmarkerOptions(
@@ -101,6 +109,12 @@ class PoseEstimator:
                     cv2.circle(annotated_frame, (x, y), 8, (0, 0, 0), 2)
 
         return annotated_frame
+
+    def process_external_frame(self, frame: np.ndarray):
+        """Process one externally provided frame (e.g., from WebSocket/frontend)."""
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
+        self.latest_result = self.landmarker.detect(mp_image)
+        return self._draw_landmarks(frame, self.latest_result)
     
     def get_landmarks_result(self):
         # Use 3D real-world (in meters) coordinates for more accurate angle and distance calculations, and include visibility and presence for form checks
@@ -129,8 +143,7 @@ class PoseEstimator:
         
         # Returns a 33 x 4 Numpy Array (Matrix) for the 33 landmarks
         return np.array(result, dtype=np.float32)
-    
-    
+
     def run(self):
         frame = self._process_frame()
         if frame is None:
@@ -139,6 +152,7 @@ class PoseEstimator:
         return annotated   
 
     def _cleanup(self):
-        self.video.release()
+        if self.video is not None:
+            self.video.release()
         cv2.destroyAllWindows()
         self.landmarker.close()
