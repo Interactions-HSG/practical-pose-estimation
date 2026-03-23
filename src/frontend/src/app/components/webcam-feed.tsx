@@ -117,13 +117,14 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
         if (exercise === "bench") {
             return currentSet === 1 ? "/cam_bench_front.svg" :
                 currentSet === 2 ? "/cam_bench_side.svg" :
-                    "/cam_bench_side.svg";
+                    "/cam_bench_otherSide.svg";
         }
         return currentSet === 1 ? "/cam_front.svg" :
             currentSet === 2 ? "/cam_side.svg" :
-                "/cam_side.svg";
+                "/cam_otherSide.svg";
     };
 
+    // Main effect to handle camera access, WebSocket connection, and streaming logic
     useEffect(() => {
         if (!isRunning) {
             return;
@@ -379,6 +380,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
         }
     }, [currentReps, targetReps, isRunning]);
 
+    // Handlers for starting exercise, ending set, moving to next set, and stopping exercise
     const handleStart = async () => {
         AudioPlayback();
         setStatus("Initializing camera...");
