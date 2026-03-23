@@ -57,6 +57,8 @@ def play_audio_feedback(
     last_filepath,
     green_queue,
     detected,
+    play_local_audio,
+    queue_audio_event=None,
     red_cooldown=2.0,
     green_cooldown=5.0,
 ):
@@ -83,10 +85,14 @@ def play_audio_feedback(
         ensure_audio_file_exists(filepath, text)
         was_last_green = isinstance(last_filepath, str) and last_filepath.endswith('_green.mp3')
         if current_time >= last_audio_end_time or was_last_green:
-            pygame.mixer.music.stop()
-            green_queue.clear()
-            pygame.mixer.music.load(filepath)
-            pygame.mixer.music.play()
+            if play_local_audio:
+                pygame.mixer.music.stop()
+                green_queue.clear()
+                pygame.mixer.music.load(filepath)
+                pygame.mixer.music.play()
+            else:
+                if queue_audio_event:
+                    queue_audio_event(filepath, text, color)
             estimated_audio_length = 5.0
             last_audio_end_time = current_time + estimated_audio_length + red_cooldown
             last_filepath = filepath
@@ -97,16 +103,27 @@ def play_audio_feedback(
         if filepath == last_filepath:
             return last_audio_end_time, last_filepath, green_queue, detected
         
-        if detected is False and all(item[0] != filepath for item in green_queue):
+        if text == "You have been detected!" and detected:
+          return last_audio_end_time, last_filepath, green_queue, detected
+    
+        if all(item[0] != filepath for item in green_queue):
             green_queue.append((filepath, text))
 
     #If currently no audio is playing and there are green feedback queued, play the next one in the queue 
-    if not pygame.mixer.music.get_busy() and current_time >= last_audio_end_time:
+    check_audio_player_free = (not pygame.mixer.music.get_busy() and current_time >= last_audio_end_time) if play_local_audio else (current_time >= last_audio_end_time)
+    
+    if check_audio_player_free:
             if green_queue:
                 next_filepath, next_text = green_queue.popleft()
                 ensure_audio_file_exists(next_filepath, next_text)
-                pygame.mixer.music.load(next_filepath)
-                pygame.mixer.music.play()
+            
+                if play_local_audio:
+                    pygame.mixer.music.load(next_filepath)
+                    pygame.mixer.music.play()
+                else:
+                    if queue_audio_event:
+                        queue_audio_event(next_filepath, next_text, color)
+                        
                 if next_text == "You have been detected!":
                     detected = True
                 estimated_audio_length = 3.0

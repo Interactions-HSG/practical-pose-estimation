@@ -10,8 +10,11 @@ class BentOverRowFormChecker:
     providing real-time feedback on the form.
     '''
 
-    def __init__(self, tts):
+    def __init__(self, tts, play_local_audio=False, queue_audio_event=None):
+        # Initialize with Text-to-Speech (TTS) option and audio event queue callback for server mode
         self.tts = tts
+        self.play_local_audio = play_local_audio
+        self.queue_audio_event = queue_audio_event
 
         # Set up for text display
         self.font = cv2.FONT_HERSHEY_SIMPLEX
@@ -37,14 +40,16 @@ class BentOverRowFormChecker:
         self.detected = False
 
         # Run a one-time startup delay after the first successful detection.
-        self.initial_detection_timer_seconds = 8.0
+        self.initial_detection_timer_seconds = 10.0
         self.initial_detection_timer_started_at = None
         self.initial_detection_timer_done = False
+
+        self.rep_counter = 0
 
     def check_bentover_form(self, annotated, landmarks: np.array, rom_achieved, init_pos):
         if landmarks is None or landmarks.shape[0] != 33:
             print("Insufficient landmarks for bent-over row form check.")
-            return annotated, rom_achieved, init_pos
+            return annotated, rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
     
         self.annotated = annotated
 
@@ -72,23 +77,41 @@ class BentOverRowFormChecker:
             #cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
 
             if self.tts:
-                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(message, 'feedback/camera_feedback.mp3',
-                                                                                                    self.last_audio_end_time, self.red, self.last_filepath, self.green_queue, self.detected)
+                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
+                                                                                                    text = message,
+                                                                                                    filepath='feedback/camera_feedback.mp3',
+                                                                                                    last_audio_end_time=self.last_audio_end_time,
+                                                                                                    color=self.red,
+                                                                                                    last_filepath=self.last_filepath,
+                                                                                                    green_queue=self.green_queue,
+                                                                                                    detected=self.detected,
+                                                                                                    play_local_audio=self.play_local_audio,
+                                                                                                    queue_audio_event=self.queue_audio_event
+                                                                                                )
         else:
             message = "You have been detected!"
             if self.tts:
-                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(message, 'feedback/camera_feedback.mp3',
-                                                                                                    self.last_audio_end_time, self.green, self.last_filepath, self.green_queue, self.detected)
+                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
+                                                                                                    text = message,
+                                                                                                    filepath='feedback/camera_feedback.mp3',
+                                                                                                    last_audio_end_time=self.last_audio_end_time,
+                                                                                                    color=self.green,
+                                                                                                    last_filepath=self.last_filepath,
+                                                                                                    green_queue=self.green_queue,
+                                                                                                    detected=self.detected,
+                                                                                                    play_local_audio=self.play_local_audio,
+                                                                                                    queue_audio_event=self.queue_audio_event
+                                                                                                )
 
             if self.detected:
                 if not self.initial_detection_timer_done:
                     if self.initial_detection_timer_started_at is None:
                         self.initial_detection_timer_started_at = time.monotonic()
-                        return rom_achieved, init_pos
+                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
 
                     elapsed = time.monotonic() - self.initial_detection_timer_started_at
                     if elapsed < self.initial_detection_timer_seconds:
-                        return rom_achieved, init_pos
+                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
 
                     self.initial_detection_timer_done = True
                     self.initial_detection_timer_started_at = None
@@ -96,11 +119,11 @@ class BentOverRowFormChecker:
                 self._check_back_form()
 
                 if self.correct_back_form and (self.cam_pos == "left" or self.cam_pos == "right"):
-                    rom_achieved, init_pos = self._check_range_of_motion(rom_achieved, init_pos)
+                    rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter = self._check_range_of_motion(rom_achieved, init_pos)
                 elif self.correct_back_form and self.cam_pos == "front":
                     self._check_grip_width()
 
-        return rom_achieved, init_pos
+        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
 
     def _check_back_form(self):
 
@@ -141,10 +164,17 @@ class BentOverRowFormChecker:
         
         #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
         if self.tts:
-            self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(audio_text, f'feedback/back_feedback{file_ending}', 
-                                                                            self.last_audio_end_time, color, self.last_filepath, self.green_queue, self.detected)
-
-            
+            self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
+                                                                                                text=audio_text,
+                                                                                                filepath=f'feedback/back_feedback{file_ending}',
+                                                                                                last_audio_end_time=self.last_audio_end_time,
+                                                                                                color=color,
+                                                                                                last_filepath=self.last_filepath,
+                                                                                                green_queue=self.green_queue,
+                                                                                                detected=self.detected,
+                                                                                                play_local_audio=self.play_local_audio,
+                                                                                                queue_audio_event=self.queue_audio_event
+                                                                                            )
 
     def _check_range_of_motion(self, rom_achieved, init_pos):
         feedback_position = (10, 140)
@@ -161,19 +191,19 @@ class BentOverRowFormChecker:
             in_pull_phase = right_elbow_angle < elbow_flexion_threshold
         else:
             in_pull_phase = (left_elbow_angle < elbow_flexion_threshold and right_elbow_angle < elbow_flexion_threshold)
-
+    
         if in_pull_phase:
 
             # Start of Movement (Important for ROM check and to avoid false triggers)
             if init_pos:
                 init_pos = False
                 self.rom_start_time = time.time()
-                return rom_achieved, init_pos
+                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
 
             # Check if we are still within the ROM delay period to false trigger audio feedback and only provide feedback after the delay has passed
             if self.rom_start_time is not None and (time.time() - self.rom_start_time) < self.rom_delay_seconds:
-                return rom_achieved, init_pos
-    
+                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+
             if self.cam_pos == "left" and left_elbow_angle < range_of_motion_threshold and init_pos == False:
                 color = self.green
                 message = "RANGE OF MOTION: Good range of motion."
@@ -199,15 +229,26 @@ class BentOverRowFormChecker:
 
             #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
             if self.tts:
-                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(audio_text, f'feedback/bent_rom{file_ending}', 
-                                                                                                    self.last_audio_end_time, color, self.last_filepath, self.green_queue, self.detected)
+                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
+                                                                                                    text=audio_text,
+                                                                                                    filepath=f'feedback/bent_rom{file_ending}',
+                                                                                                    last_audio_end_time=self.last_audio_end_time,
+                                                                                                    color=color,
+                                                                                                    last_filepath=self.last_filepath,
+                                                                                                    green_queue=self.green_queue,
+                                                                                                    detected=self.detected,
+                                                                                                    play_local_audio=self.play_local_audio,
+                                                                                                    queue_audio_event=self.queue_audio_event
+                                                                                                )
         
         else:
+            if rom_achieved:
+                self.rep_counter += 1
             init_pos = True
             rom_achieved = False
             self.rom_start_time = None  # Reset ROM timer when arms are extended
 
-        return rom_achieved, init_pos
+        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
 
     def _check_grip_width(self):
 
@@ -239,8 +280,17 @@ class BentOverRowFormChecker:
 
         #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
         if self.tts:
-            self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(audio_text, f'feedback/bent_grip{file_ending}',
-                                                                                self.last_audio_end_time, color, self.last_filepath, self.green_queue, self.detected)
+            self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
+                                                                                                    text=audio_text,
+                                                                                                    filepath=f'feedback/bent_grip{file_ending}',
+                                                                                                    last_audio_end_time=self.last_audio_end_time,
+                                                                                                    color=color,
+                                                                                                    last_filepath=self.last_filepath,
+                                                                                                    green_queue=self.green_queue,
+                                                                                                    detected=self.detected,
+                                                                                                    play_local_audio=self.play_local_audio,
+                                                                                                    queue_audio_event=self.queue_audio_event
+                                                                                                )
     
 
         

@@ -62,9 +62,9 @@ def main():
         pose_estimator_supine = PoseEstimatorSupine(mode=mode)
 
     #Form Checkers
-    squat_checker = SquatFormChecker(tts) 
-    benchpress_checker = BenchpressFormChecker(tts)
-    bentOver_checker = BentOverRowFormChecker(tts)
+    squat_checker = SquatFormChecker(tts, True, None) 
+    benchpress_checker = BenchpressFormChecker(tts, True, None)
+    bentOver_checker = BentOverRowFormChecker(tts, True, None)
 
     rom_achieved = False
     init_pos = True 
@@ -82,9 +82,9 @@ def main():
             if points is not None:
                 match chosen_exercise:
                     case 'squat':
-                        rom_achieved, init_pos = squat_checker.check_Squat_form(annotated, points, rom_achieved, init_pos)
+                        rom_achieved, init_pos, _, _ = squat_checker.check_Squat_form(annotated, points, rom_achieved, init_pos)
                     case 'bent':
-                        rom_achieved, init_pos = bentOver_checker.check_bentover_form(annotated, points, rom_achieved, init_pos)
+                        rom_achieved, init_pos, _, _ = bentOver_checker.check_bentover_form(annotated, points, rom_achieved, init_pos)
 
         #Run the YOLO Model for supine exercises for higher accuracy
         elif chosen_exercise in available_supine_exercises:
@@ -101,8 +101,8 @@ def main():
                         else:
                             best_idx = int(points[:, :, 2].mean(axis=1).argmax())
                             person_points = points[best_idx]
-                        rom_achieved, init_pos = benchpress_checker.check_benchpress_form(annotated, person_points, rom_achieved, init_pos)
-    
+                        rom_achieved, init_pos, _, _ = benchpress_checker.check_benchpress_form(annotated, person_points, rom_achieved, init_pos)
+
         cv2.imshow("Visual Spotter", annotated)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break

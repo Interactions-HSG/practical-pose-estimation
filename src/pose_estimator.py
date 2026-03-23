@@ -100,13 +100,13 @@ class PoseEstimator:
                     if start.presence > 0.75 and end.presence > 0.75:
                         p1 = (int(start.x * w), int(start.y * h))
                         p2 = (int(end.x * w), int(end.y * h))
-                        cv2.line(annotated_frame, p1, p2, (0, 255, 0), 4)
+                        cv2.line(annotated_frame, p1, p2, (0, 255, 0), 2)
 
             for lm in landmarks:
                 if lm.presence > 0.75:
                     x, y = int(lm.x * w), int(lm.y * h)
-                    cv2.circle(annotated_frame, (x, y), 8, (255, 255, 0), -1)
-                    cv2.circle(annotated_frame, (x, y), 8, (0, 0, 0), 2)
+                    cv2.circle(annotated_frame, (x, y), 4, (255, 255, 0), -1)
+                    cv2.circle(annotated_frame, (x, y), 4, (0, 0, 0), 2)
 
         return annotated_frame
 

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import React from "react";
 import { usePathname } from "next/navigation";
-import { Url } from "next/dist/shared/lib/router/router";
 
 const navItems = [
     {
@@ -30,7 +29,10 @@ const navItems = [
 
 const Navbar: React.FunctionComponent = () => {
   const pathname = usePathname();
-  const isActive = (path: Url) => pathname === path;
+  const isActive = (path: string) => {
+    if (path === "/") return pathname === "/";
+    return pathname === path || pathname.startsWith(`${path}/`);
+  };
 
   return (
     <nav className="w-full pb-4 md:pb-4">

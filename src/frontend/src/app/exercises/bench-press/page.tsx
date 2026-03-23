@@ -12,7 +12,7 @@ export default function BenchPage() {
             <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-5 px-6 py-8 sm:px-10 lg:flex-row lg:items-start lg:px-10" >
                 <Instructions />
                 <div className="flex w-full lg:py-20 flex-col items-center gap-4 lg:w-auto lg:items-center">
-                    <FormChecker_Button formChecker="bench-press" />
+                    <FormChecker_Button path="/exercises/bench-press/form_checker" />
                     <ExerciseVideo src="/bench_ref.mp4" />
                 </div>
             </div>

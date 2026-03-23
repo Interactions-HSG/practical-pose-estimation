@@ -1,0 +1,622 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import Countdown from "./countdown";
+
+type WebcamFeedProps = {
+    exercise: "squat" | "bench" | "bent";
+};
+
+export default function WebcamFeed({ exercise }: WebcamFeedProps) {
+    // Streaming configuration
+    const STREAM_CONFIG = {
+        TARGET_FPS: 12,
+        STREAM_MAX_WIDTH: 360,
+        JPEG_QUALITY: 0.38,
+        ADAPTIVE_MODE: true,
+        MIN_WIDTH: 256,
+        MIN_QUALITY: 0.28,
+    } as const;
+
+    const STREAM_INTERVAL_MS = Math.max(40, Math.round(1000 / STREAM_CONFIG.TARGET_FPS));
+
+    // Refs for video, canvas, WebSocket, media stream, and various flags and timers
+    const videoRef = useRef<HTMLVideoElement | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const wsRef = useRef<WebSocket | null>(null);
+    const streamRef = useRef<MediaStream | null>(null);
+    const sendingRef = useRef<boolean>(false);
+    const inFlightTimeoutRef = useRef<number | null>(null);
+    const lastSendAtRef = useRef<number>(0);
+    const adaptiveWidthRef = useRef<number>(STREAM_CONFIG.STREAM_MAX_WIDTH);
+    const adaptiveQualityRef = useRef<number>(STREAM_CONFIG.JPEG_QUALITY);
+    const lastAdaptAtRef = useRef<number>(0);
+    const receiveTimesRef = useRef<number[]>([]);
+    const overlayTimeoutRef = useRef<number | null>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const audioQueueRef = useRef<string[]>([]);
+    const audioPlayingRef = useRef<boolean>(false);
+    const audioUnlockedRef = useRef<boolean>(false);
+
+    const normalizeAudioUrl = (rawUrl: string) => {
+        try {
+            const normalized = new URL(rawUrl, window.location.origin);
+
+            // Avoid mixed-content blocking when frontend is served over HTTPS.
+            if (window.location.protocol === "https:" && normalized.protocol === "http:") {
+                normalized.protocol = "https:";
+            }
+
+            return normalized.toString();
+        } catch {
+            return rawUrl;
+        }
+    };
+
+    // State for UI status and performance metrics
+    const [status, setStatus] = useState<string>("Initializing camera...");
+    const [connected, setConnected] = useState<boolean>(false);
+    const [annotatedSrc, setAnnotatedSrc] = useState<string>("");
+    const [isRunning, setIsRunning] = useState<boolean>(false);
+    const [perf, setPerf] = useState<string>("");
+    const [showPlacementOverlay, setShowPlacementOverlay] = useState<boolean>(false);
+    const [personDetected, setPersonDetected] = useState<boolean>(false);
+    const [initialDetectionTimerDone, setInitialDetectionTimerDone] = useState<boolean>(false);
+    const [targetReps, setTargetReps] = useState<number>(10);
+    const [currentReps, setCurrentReps] = useState<number>(0);
+    const [currentSet, setCurrentSet] = useState<number>(1);
+    const [totalSets] = useState<number>(3);
+    const [showFeedbackScreen, setShowFeedbackScreen] = useState<boolean>(false);
+    const [targetRepsInput, setTargetRepsInput] = useState<string>("10");
+
+    const showCountdownOverlay =
+        isRunning && !showPlacementOverlay && personDetected && !initialDetectionTimerDone;
+
+    const playNextAudio = () => {
+        const audio = audioRef.current;
+        if (!audio || audioPlayingRef.current) return;
+
+        const nextUrl = audioQueueRef.current.shift();
+        if (!nextUrl) return;
+
+        audioPlayingRef.current = true;
+        audio.src = normalizeAudioUrl(nextUrl);
+        audio.currentTime = 0;
+
+        void audio.play()
+    };
+
+    const enqueueAudio = (url: string) => {
+        if (!url) return;
+        audioQueueRef.current.push(url);
+        playNextAudio();
+    };
+
+    const AudioPlayback = async () => {
+
+        const audio = audioRef.current ?? new Audio();
+        audio.preload = "auto";
+        audio.crossOrigin = "anonymous";
+
+        //Check if audio playback is already unlocked (e.g. from previous session)
+        audio.onended = () => {
+            audioPlayingRef.current = false;
+            playNextAudio();
+        };
+
+        audio.onerror = () => {
+            audioPlayingRef.current = false;
+            playNextAudio();
+        };
+
+        audioRef.current = audio;
+    };
+
+    const getCameraGuideImage = () => {
+        if (exercise === "bench") {
+            return currentSet === 1 ? "/cam_bench_front.svg" :
+                currentSet === 2 ? "/cam_bench_side.svg" :
+                    "/cam_bench_side.svg";
+        }
+        return currentSet === 1 ? "/cam_front.svg" :
+            currentSet === 2 ? "/cam_side.svg" :
+                "/cam_side.svg";
+    };
+
+    useEffect(() => {
+        if (!isRunning) {
+            return;
+        }
+
+        let intervalId: number | null = null;
+
+        const start = async () => {
+            try {
+                // Request camera access and start video stream
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 960 },
+                        height: { ideal: 540 },
+                        facingMode: "user",
+                    },
+                    audio: false,
+                });
+                streamRef.current = stream;
+
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    await videoRef.current.play();
+                }
+
+                setStatus("Connecting to backend...");
+
+                // Prefer explicit backend URL from env (works with ngrok/cloudflared),
+                // otherwise fall back to same-host + configurable port for local dev.
+                const envBackendBase = process.env.NEXT_PUBLIC_BACKEND_WS_URL?.trim();
+                let wsUrl: string;
+
+                if (envBackendBase) {
+                    const normalizedBase = envBackendBase.replace(/^https:\/\//i, "wss://")
+                    wsUrl = `${normalizedBase}/livestream?exercise=${exercise}`;
+                } else {
+                    const wsHost = window.location.hostname;
+                    const wsPort = process.env.NEXT_PUBLIC_BACKEND_PORT ?? "8000";
+                    wsUrl = `wss://${wsHost}:${wsPort}/livestream?exercise=${exercise}`;
+                }
+
+                const ws = new WebSocket(wsUrl);
+                ws.binaryType = "arraybuffer";
+                wsRef.current = ws;
+
+                ws.onopen = () => {
+                    setConnected(true);
+                    setStatus("Connected. Running live form check...");
+                    adaptiveWidthRef.current = STREAM_CONFIG.STREAM_MAX_WIDTH;
+                    adaptiveQualityRef.current = STREAM_CONFIG.JPEG_QUALITY;
+                    lastAdaptAtRef.current = 0;
+
+                    intervalId = window.setInterval(() => {
+
+                        // Don't send a new frame if the previous one is still being processed or if WebSocket isn't ready
+                        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+                        if (!videoRef.current || !canvasRef.current) return;
+                        if (sendingRef.current) return;
+
+                        // Draw current video frame to canvas and send as JPEG blob but only if video metadata is loaded 
+                        const video = videoRef.current;
+                        const canvas = canvasRef.current;
+                        if (video.videoWidth === 0 || video.videoHeight === 0) return;
+
+                        // Keep payload small for tunnel/mobile links to reduce latency.
+                        const scaledWidth = Math.min(video.videoWidth, adaptiveWidthRef.current);
+                        const scaledHeight = Math.round((scaledWidth / video.videoWidth) * video.videoHeight);
+
+                        canvas.width = scaledWidth;
+                        canvas.height = scaledHeight;
+                        const ctx = canvas.getContext("2d");
+                        if (!ctx) return;
+
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        sendingRef.current = true;
+
+                        // Convert canvas to JPEG blob and send via WebSocket
+                        canvas.toBlob((blob) => {
+                            if (!blob || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+                                sendingRef.current = false;
+                                return;
+                            }
+                            lastSendAtRef.current = performance.now();
+                            wsRef.current.send(blob);
+
+                            // If response is lost, unlock sending so stream does not freeze on one frame.
+                            if (inFlightTimeoutRef.current !== null) {
+                                window.clearTimeout(inFlightTimeoutRef.current);
+                            }
+                            inFlightTimeoutRef.current = window.setTimeout(() => {
+                                sendingRef.current = false;
+                                setStatus("High latency detected, retrying...");
+                            }, 5000);
+                        }, "image/jpeg", adaptiveQualityRef.current);
+                    }, STREAM_INTERVAL_MS);
+
+
+                };
+
+                ws.onmessage = (event) => {
+                    if (typeof event.data === "string") {
+                        try {
+                            const payload = JSON.parse(event.data) as {
+                                type?: string;
+                                url?: string;
+                                detected?: boolean;
+                                timer_done?: boolean;
+                                rep_counter?: number;
+                            };
+
+                            if (payload.type === "audio_feedback" && payload.url) {
+                                enqueueAudio(payload.url);
+                            }
+
+                            else if (payload.type === "detection_status") {
+                                setPersonDetected(payload.detected === true);
+                                setInitialDetectionTimerDone(payload.timer_done === true);
+                            }
+                            else if (payload.type === "rep_update") {
+                                setCurrentReps(payload.rep_counter ?? currentReps);
+                            }
+
+                        } catch {
+                            // Ignore malformed control messages and continue receiving frames.
+                        }
+                        return;
+                    }
+
+                    //Receive annotated frame as ArrayBuffer, convert to Blob and create object URL for display
+                    const arrayBuffer = event.data as ArrayBuffer;
+                    const blob = new Blob([arrayBuffer], { type: "image/jpeg" });
+                    const objectUrl = URL.createObjectURL(blob);
+
+                    setAnnotatedSrc((prev) => {
+                        if (prev) URL.revokeObjectURL(prev);
+                        return objectUrl;
+                    });
+
+                    const now = performance.now();
+                    const rttMs = now - lastSendAtRef.current;
+                    const recent = receiveTimesRef.current.filter((t) => now - t < 3000);
+                    recent.push(now);
+                    receiveTimesRef.current = recent;
+                    const measuredFps = recent.length / 3;
+
+                    // Auto-adjust stream settings to keep it smooth on unstable tunnel/mobile links.
+                    if (STREAM_CONFIG.ADAPTIVE_MODE && now - lastAdaptAtRef.current > 1200) {
+                        const tooSlow = rttMs > 450 || measuredFps < STREAM_CONFIG.TARGET_FPS * 0.55;
+                        const healthy = rttMs < 180 && measuredFps > STREAM_CONFIG.TARGET_FPS * 0.9;
+
+                        if (tooSlow) {
+                            adaptiveWidthRef.current = Math.max(STREAM_CONFIG.MIN_WIDTH, Math.round(adaptiveWidthRef.current * 0.85));
+                            adaptiveQualityRef.current = Math.max(STREAM_CONFIG.MIN_QUALITY, Number((adaptiveQualityRef.current - 0.05).toFixed(2)));
+                            setStatus("Adapting stream for lower latency...");
+                            lastAdaptAtRef.current = now;
+                        } else if (healthy) {
+                            adaptiveWidthRef.current = Math.min(STREAM_CONFIG.STREAM_MAX_WIDTH, Math.round(adaptiveWidthRef.current * 1.08));
+                            adaptiveQualityRef.current = Math.min(STREAM_CONFIG.JPEG_QUALITY, Number((adaptiveQualityRef.current + 0.03).toFixed(2)));
+                            lastAdaptAtRef.current = now;
+                        }
+                    }
+
+                    setPerf(
+                        `${measuredFps.toFixed(1)} fps | ${Math.round(rttMs)} ms RTT | ${adaptiveWidthRef.current}px q${adaptiveQualityRef.current.toFixed(2)}`
+                    );
+
+                    // Allow next frame to be sent after receiving response
+                    if (inFlightTimeoutRef.current !== null) {
+                        window.clearTimeout(inFlightTimeoutRef.current);
+                        inFlightTimeoutRef.current = null;
+                    }
+                    sendingRef.current = false;
+                };
+
+                ws.onerror = () => {
+                    setStatus("WebSocket error. Is backend running on port 8000?");
+                    setConnected(false);
+                    setIsRunning(false);
+                    setPersonDetected(false);
+                    setInitialDetectionTimerDone(false);
+                    sendingRef.current = false;
+                };
+
+                ws.onclose = () => {
+                    setStatus("Connection closed.");
+                    setConnected(false);
+                    setIsRunning(false);
+                    setPersonDetected(false);
+                    setInitialDetectionTimerDone(false);
+                    sendingRef.current = false;
+                };
+            } catch {
+                setStatus("Camera access denied or unavailable.");
+            }
+        };
+
+        start();
+
+        return () => {
+            // Cleanup on unmount: stop video stream, close WebSocket, revoke object URLs, and clear intervals
+            if (intervalId !== null) window.clearInterval(intervalId);
+            if (inFlightTimeoutRef.current !== null) {
+                window.clearTimeout(inFlightTimeoutRef.current);
+                inFlightTimeoutRef.current = null;
+            }
+            if (overlayTimeoutRef.current !== null) {
+                window.clearTimeout(overlayTimeoutRef.current);
+                overlayTimeoutRef.current = null;
+            }
+            if (wsRef.current) wsRef.current.close();
+            wsRef.current = null;
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach((track) => track.stop());
+                streamRef.current = null;
+            }
+            if (videoRef.current) {
+                videoRef.current.srcObject = null;
+            }
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.onended = null;
+                audioRef.current.onerror = null;
+                audioRef.current = null;
+            }
+            if (audioContextRef.current) {
+                void audioContextRef.current.close();
+                audioContextRef.current = null;
+            }
+            audioQueueRef.current = [];
+            audioPlayingRef.current = false;
+            audioUnlockedRef.current = false;
+            setConnected(false);
+            sendingRef.current = false;
+            receiveTimesRef.current = [];
+            adaptiveWidthRef.current = STREAM_CONFIG.STREAM_MAX_WIDTH;
+            adaptiveQualityRef.current = STREAM_CONFIG.JPEG_QUALITY;
+            setPerf("");
+            setAnnotatedSrc((prev) => {
+                if (prev) URL.revokeObjectURL(prev);
+                return "";
+            });
+        };
+    }, [
+        exercise,
+        isRunning,
+        STREAM_INTERVAL_MS,
+    ]);
+
+    // Auto-complete set when target reps reached
+    useEffect(() => {
+        if (isRunning && currentReps > 0 && currentReps === targetReps) {
+            handleEndSet();
+        }
+    }, [currentReps, targetReps, isRunning]);
+
+    const handleStart = async () => {
+        AudioPlayback();
+        setStatus("Initializing camera...");
+        setShowPlacementOverlay(true);
+        if (overlayTimeoutRef.current !== null) {
+            window.clearTimeout(overlayTimeoutRef.current);
+        }
+        overlayTimeoutRef.current = window.setTimeout(() => {
+            setShowPlacementOverlay(false);
+            overlayTimeoutRef.current = null;
+        }, 5000);
+        setShowFeedbackScreen(false);
+        setCurrentReps(0);
+        setIsRunning(true);
+    };
+
+    const handleEndSet = () => {
+        setIsRunning(false);
+        setShowFeedbackScreen(true);
+    };
+
+    const handleNextSet = () => {
+        if (currentSet < totalSets) {
+            setCurrentSet(currentSet + 1);
+            setCurrentReps(0);
+            setShowFeedbackScreen(false);
+            handleStart();
+        }
+    };
+
+    const handleStop = () => {
+        setStatus("Stopped.");
+        setShowPlacementOverlay(false);
+        setPersonDetected(false);
+        setInitialDetectionTimerDone(false);
+        setCurrentReps(0);
+        setCurrentSet(1);
+        setShowFeedbackScreen(false);
+        setTargetRepsInput(String(targetReps));
+        if (overlayTimeoutRef.current !== null) {
+            window.clearTimeout(overlayTimeoutRef.current);
+            overlayTimeoutRef.current = null;
+        }
+        setIsRunning(false);
+    };
+
+
+    //Frontend UI with connection status and annotated video feed (or placeholder while waiting for first frame)
+    return (
+        <section className="flex w-full max-w-5xl">
+            <div className="flex flex-col w-full items-center rounded-2xl border border-blue-800/60 bg-blue-900/30 p-4 sm:p-5">
+                <ConnectionStatus />
+                <RepSelector />
+                <RepSetCounter />
+
+                {/* Connection status, rep/set counters, and performance metrics */}
+                <p className="mb-4 text-sm text-slate-300">{status}</p>
+                {perf && <p className="mb-4 text-xs text-slate-400">{perf}</p>}
+
+
+                <ControlButton />
+
+
+                 {/* Livestream Window */}
+                <div className="relative h-104 w-full overflow-hidden rounded-xl border border-blue-800/60 bg-black/30 md:h-136">
+                    {showFeedbackScreen && (
+                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 from-blue-900/60 to-slate-900/60 p-4 text-center">
+                            <div className="flex flex-col items-center justify-center gap-6 w-full h-full">
+                                <h2 className="text-4xl font-bold text-white">Set {currentSet} Complete! 🎉</h2>
+                                <p className="text-2xl text-slate-300">
+                                    You completed <span className="text-green-400 font-bold text-3xl">{currentReps}/{targetReps}</span> reps
+                                </p>
+                                <div className="flex flex-col gap-4 mt-auto mb-auto">
+                                    {currentSet < totalSets ? (
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={handleNextSet}
+                                                className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
+                                            >
+                                                Next Set
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleStop}
+                                                className="rounded-lg bg-slate-700 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-slate-600"
+                                            >
+                                                Stop Exercise
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={handleStop}
+                                            className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
+                                        >
+                                            Finish Workout 🏆
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {showPlacementOverlay && (
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/80 p-4 text-center">
+                            <img src={getCameraGuideImage()} alt="Camera placement guide" className="max-h-80 w-auto md:max-h-96" />
+                        </div>
+                    )}
+                    {showCountdownOverlay && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center">
+                            <div className="rounded-full bg-green-500/70 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm">
+                                <Countdown startDelayMs={1000} />
+                            </div>
+                        </div>
+                    )}
+                    {annotatedSrc ? (
+                        <img src={annotatedSrc} alt="Annotated output" className="h-full w-full object-fill" />
+                    ) : (
+                        <div className="flex h-full items-center justify-center px-4 text-center text-sm text-slate-400">
+                            {isRunning ? "Waiting for first processed frame..." : ""}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <video ref={videoRef} className="hidden" playsInline muted autoPlay />
+            <canvas ref={canvasRef} className="hidden" />
+            <audio ref={audioRef} className="hidden" preload="auto" />
+        </section>
+    );
+
+    function ConnectionStatus() {
+        return (
+            <div className="mb-3 flex items-center justify- gap-3">
+                <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${connected
+                        ? "bg-green-600 text-cyan-200"
+                        : "bg-blue-900/60 text-slate-300"
+                        }`}
+                >
+                    {connected ? "Connected" : "Disconnected"}
+                </span>
+            </div>
+        )
+    }
+
+    function RepSelector() {
+        return (
+            <div className="mb-4 w-full rounded-lg border border-blue-800/60 bg-blue-900/20 p-4">
+                <label className="block text-sm font-semibold text-slate-300 mb-2 text-center">
+                    How many Repetitions are you planning to do?
+                </label>
+                <div className="flex gap-2 justify-center max-w-xs mx-auto">
+                    <input
+                        type="text"
+                        inputMode="numeric"
+                        value={targetRepsInput}
+                        onChange={(e) => {
+                            const val = e.target.value.replace(/[^0-9]/g, "");
+                            setTargetRepsInput(val);
+                        }}
+                        onBlur={() => {
+                            const num = parseInt(targetRepsInput) || 10;
+                            const validated = Math.max(1, Math.min(50, num));
+                            setTargetReps(validated);
+                            setTargetRepsInput(String(validated));
+                        }}
+                        disabled={isRunning}
+                        className="flex-1 rounded-lg bg-slate-700/50 px-3 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setTargetReps(10);
+                            setTargetRepsInput("10");
+                        }}
+                        disabled={isRunning}
+                        className="rounded-lg bg-slate-700/50 px-3 py-2 text-white hover:bg-slate-600/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                        Reset
+                    </button>
+                </div>
+            </div>
+        )
+    }
+
+    function RepSetCounter() {
+        return (
+            <div className="flex w-full flex-row items-center justify-center gap-8">
+                <div className="mb-4 w-full rounded-lg border border-blue-800/60 bg-blue-900/20 p-4 text-center">
+                    <p className="text-sm font-semibold text-slate-300 mb-2">Set</p>
+                    <p className="text-3xl font-bold text-slate-300">
+                        {currentSet} / {totalSets}
+                    </p>
+                </div>
+                <div className="mb-4 w-full rounded-lg border border-blue-800/60 bg-blue-900/20 p-4 text-center">
+                    <p className="text-sm font-semibold text-slate-300 mb-2">Reps Completed</p>
+                    <p className="text-3xl font-bold text-slate-300">
+                        {currentReps} / {targetReps}
+                    </p>
+                </div>
+            </div>
+        )
+    }
+
+    function ControlButton() {
+        return (
+            <div className="mb-4 flex items-center gap-3">
+                {!isRunning && !showFeedbackScreen ? (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            void handleStart();
+                        }}
+                        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-500"
+                    >
+                        Start Exercise
+                    </button>
+                ) : isRunning ? (
+                    <>
+                        <button
+                            type="button"
+                            onClick={handleStop}
+                            className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-600"
+                        >
+                            Stop Exercise
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleEndSet}
+                            className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-600"
+                        >
+                            End Set
+                        </button>
+                    </>
+                ) : null}
+            </div>
+        )
+
+    }
+}
