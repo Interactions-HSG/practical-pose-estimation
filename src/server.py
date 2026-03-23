@@ -99,6 +99,7 @@ class ExerciseSession:
         self.lastDetectedStatus = None
         self.lastTimerStatus = None
         self.last_rep_counter = 0
+        self.rep_counter = 0  # Ensure this attribute always exists
 
         if exercise in ("squat", "bent"):
             self.estimator = PoseEstimator(mode='image', open_camera=False)
@@ -193,53 +194,66 @@ async def livestream_endpoint(websocket: WebSocket, exercise: str = "squat"):
 
     try:
         while True:
-            # 1. Receive a raw JPEG frame from the browser
-            data = await websocket.receive_bytes()
+            # 1. Receive either a raw JPEG frame or a JSON control message
+            message = await websocket.receive()
 
-            # 2. Decode JPEG -> OpenCV frame
-            frame = jpeg_to_frame(data)
-            if frame is None:
-                continue  # skip unreadable frames
+            if "bytes" in message:
+                # JPEG frame from browser
+                data = message["bytes"]
+                frame = jpeg_to_frame(data)
+                if frame is None:
+                    continue  # skip unreadable frames
 
-            # 3. Run the full pipeline (pose + skeleton + form check)
-            annotated = session.process(frame)
+                # 3. Run the full pipeline (pose + skeleton + form check)
+                annotated = session.process(frame)
 
-            # 4. Encode result back to JPEG and send to browser
-            await websocket.send_bytes(frame_to_jpeg(annotated))
+                # 4. Encode result back to JPEG and send to browser
+                await websocket.send_bytes(frame_to_jpeg(annotated))
 
-            if session.lastDetectedStatus != session.detected or session.lastTimerStatus != session.initial_detection_timer_done or session.last_rep_counter != session.rep_counter:
-                await websocket.send_json({
-                    "type": "detection_status",
-                    "detected": session.detected,
-                    "timer_done": session.initial_detection_timer_done
-                })
+                if session.lastDetectedStatus != session.detected or session.lastTimerStatus != session.initial_detection_timer_done or session.last_rep_counter != session.rep_counter:
+                    await websocket.send_json({
+                        "type": "detection_status",
+                        "detected": session.detected,
+                        "timer_done": session.initial_detection_timer_done
+                    })
 
-            session.lastDetectedStatus = session.detected
-            session.lastTimerStatus = session.initial_detection_timer_done
+                session.lastDetectedStatus = session.detected
+                session.lastTimerStatus = session.initial_detection_timer_done
 
-            if session.rep_counter != session.last_rep_counter:
-                await websocket.send_json({
-                    "type": "rep_update",
-                    "rep_counter": session.rep_counter
-                })
-                session.last_rep_counter = session.rep_counter
+                if session.rep_counter != session.last_rep_counter:
+                    await websocket.send_json({
+                        "type": "rep_update",
+                        "rep_counter": session.rep_counter
+                    })
+                    session.last_rep_counter = session.rep_counter
 
-            # 5. Send any queued audio feedback events (as JSON on the same WebSocket)
-            for audio_event in session.pop_audio_events():
-                # Build the audio URL based on the backend URL
-                audio_path = audio_event.get("path", "")
-                audio_url = f"{http_base}/feedback/{audio_path}"
+                # 5. Send any queued audio feedback events (as JSON on the same WebSocket)
+                for audio_event in session.pop_audio_events():
+                    # Build the audio URL based on the backend URL
+                    audio_path = audio_event.get("path", "")
+                    audio_url = f"{http_base}/feedback/{audio_path}"
 
-                # Send the audio feedback as a JSON message
-                await websocket.send_json({
-                    "type": "audio_feedback",
-                    "url": audio_url,
-                    "text": audio_event.get("text", ""),
-                    "color": audio_event.get("color", "unknown"),
-                })
+                    # Send the audio feedback as a JSON message
+                    await websocket.send_json({
+                        "type": "audio_feedback",
+                        "url": audio_url,
+                        "text": audio_event.get("text", ""),
+                        "color": audio_event.get("color", "unknown"),
+                    })
+
+            elif "text" in message:
+                # JSON control message from browser
+                try:
+                    payload = message["text"]
+                    import json
+                    data = json.loads(payload)
+                    if isinstance(data, dict) and data.get("type") == "reset_reps":
+                        # Reset rep counter in session
+                        if hasattr(session, "rep_counter"):
+                            session.rep_counter = 0
+                            session.last_rep_counter = 0
+                except Exception:
+                    pass  # ignore malformed control messages
 
     except WebSocketDisconnect:
         pass  # browser closed the tab or stopped the stream
-
-    finally:
-        session.close()

@@ -37,7 +37,7 @@ function Instructions() {
                         src="/bench_affected_muscleGroups.svg"
                         width={200}
                         height={200}
-                        className="h-20 w-20 shrink-0 sm:h-24 sm:w-24 lg:h-50 lg:w-50 transition-all duration-200 ease-out hover:-translate-y-1"
+                        className="h-20 w-20 shrink-0 sm:h-24 sm:w-24 lg:h-50 lg:w-50 transition-all duration-200"
                         alt="Bench Press_Affected_Muscle_Groups"
                     />
                 </div>

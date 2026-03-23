@@ -404,6 +404,10 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
 
     const handleNextSet = () => {
         if (currentSet < totalSets) {
+            // Send reset command via WebSocket if possible
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({ type: "reset_reps", exercise }));
+            }
             setCurrentSet(currentSet + 1);
             setCurrentReps(0);
             setShowFeedbackScreen(false);
@@ -433,7 +437,43 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
         <section className="flex w-full max-w-5xl">
             <div className="flex flex-col w-full items-center rounded-2xl border border-blue-800/60 bg-blue-900/30 p-4 sm:p-5">
                 <ConnectionStatus />
-                <RepSelector />
+
+                <div className="mb-4 w-full rounded-lg border border-blue-800/60 bg-blue-900/20 p-4">
+                    <label className="block text-sm font-semibold text-slate-300 mb-2 text-center">
+                        How many Repetitions are you planning to do?
+                    </label>
+                    <div className="flex gap-2 justify-center max-w-xs mx-auto">
+                        <input
+                            type="text"
+                            inputMode="numeric"
+                            value={targetRepsInput}
+                            onChange={(e) => {
+                                const val = e.target.value.replace(/[^0-9]/g, "");
+                                setTargetRepsInput(val);
+                            }}
+                            onBlur={() => {
+                                const num = parseInt(targetRepsInput) || 10;
+                                const validated = Math.max(1, Math.min(50, num));
+                                setTargetReps(validated);
+                                setTargetRepsInput(String(validated));
+                            }}
+                            disabled={isRunning}
+                            className="flex-1 rounded-lg bg-slate-700/50 px-3 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setTargetReps(10);
+                                setTargetRepsInput("10");
+                            }}
+                            disabled={isRunning}
+                            className="rounded-lg bg-slate-700/50 px-3 py-2 text-white hover:bg-slate-600/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Reset
+                        </button>
+                    </div>
+                </div>
+                
                 <RepSetCounter />
 
                 {/* Connection status, rep/set counters, and performance metrics */}
@@ -441,10 +481,39 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                 {perf && <p className="mb-4 text-xs text-slate-400">{perf}</p>}
 
 
-                <ControlButton />
+                <div className="mb-4 flex items-center gap-3">
+                    {!isRunning && !showFeedbackScreen ? (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                void handleStart();
+                            }}
+                            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-500"
+                        >
+                            Start Exercise
+                        </button>
+                    ) : isRunning ? (
+                        <>
+                            <button
+                                type="button"
+                                onClick={handleStop}
+                                className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-600"
+                            >
+                                Stop Exercise
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleEndSet}
+                                className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-600"
+                            >
+                                End Set
+                            </button>
+                        </>
+                    ) : null}
+                </div>
 
 
-                 {/* Livestream Window */}
+                {/* Livestream Window */}
                 <div className="relative h-104 w-full overflow-hidden rounded-xl border border-blue-800/60 bg-black/30 md:h-136">
                     {showFeedbackScreen && (
                         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 from-blue-900/60 to-slate-900/60 p-4 text-center">
@@ -527,46 +596,6 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
         )
     }
 
-    function RepSelector() {
-        return (
-            <div className="mb-4 w-full rounded-lg border border-blue-800/60 bg-blue-900/20 p-4">
-                <label className="block text-sm font-semibold text-slate-300 mb-2 text-center">
-                    How many Repetitions are you planning to do?
-                </label>
-                <div className="flex gap-2 justify-center max-w-xs mx-auto">
-                    <input
-                        type="text"
-                        inputMode="numeric"
-                        value={targetRepsInput}
-                        onChange={(e) => {
-                            const val = e.target.value.replace(/[^0-9]/g, "");
-                            setTargetRepsInput(val);
-                        }}
-                        onBlur={() => {
-                            const num = parseInt(targetRepsInput) || 10;
-                            const validated = Math.max(1, Math.min(50, num));
-                            setTargetReps(validated);
-                            setTargetRepsInput(String(validated));
-                        }}
-                        disabled={isRunning}
-                        className="flex-1 rounded-lg bg-slate-700/50 px-3 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setTargetReps(10);
-                            setTargetRepsInput("10");
-                        }}
-                        disabled={isRunning}
-                        className="rounded-lg bg-slate-700/50 px-3 py-2 text-white hover:bg-slate-600/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                        Reset
-                    </button>
-                </div>
-            </div>
-        )
-    }
-
     function RepSetCounter() {
         return (
             <div className="flex w-full flex-row items-center justify-center gap-8">
@@ -584,41 +613,5 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                 </div>
             </div>
         )
-    }
-
-    function ControlButton() {
-        return (
-            <div className="mb-4 flex items-center gap-3">
-                {!isRunning && !showFeedbackScreen ? (
-                    <button
-                        type="button"
-                        onClick={() => {
-                            void handleStart();
-                        }}
-                        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-500"
-                    >
-                        Start Exercise
-                    </button>
-                ) : isRunning ? (
-                    <>
-                        <button
-                            type="button"
-                            onClick={handleStop}
-                            className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-600"
-                        >
-                            Stop Exercise
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleEndSet}
-                            className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-600"
-                        >
-                            End Set
-                        </button>
-                    </>
-                ) : null}
-            </div>
-        )
-
     }
 }
