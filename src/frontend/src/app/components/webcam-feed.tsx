@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Countdown from "./countdown";
+import ExerciseVideo from "./exercise-video";
 
 type WebcamFeedProps = {
     exercise: "squat" | "bench" | "bent";
@@ -25,6 +26,8 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const recordedBlobsRef = useRef<Blob[]>([]);
     const sendingRef = useRef<boolean>(false);
     const inFlightTimeoutRef = useRef<number | null>(null);
     const lastSendAtRef = useRef<number>(0);
@@ -68,7 +71,16 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
     const [currentSet, setCurrentSet] = useState<number>(1);
     const [totalSets] = useState<number>(3);
     const [showFeedbackScreen, setShowFeedbackScreen] = useState<boolean>(false);
+    const [showExerciseVideo, setShowExerciseVideo] = useState<boolean>(false);
     const [targetRepsInput, setTargetRepsInput] = useState<string>("10");
+    const [uploadStatus, setUploadStatus] = useState<string>("");
+    const [recordedVideoUrl, setRecordedVideoUrl] = useState<string>("");
+
+    // Refs to avoid stale closures in MediaRecorder callbacks
+    const currentSetRef = useRef<number>(1);
+    const recordedVideoUrlRef = useRef<string>("");
+    useEffect(() => { currentSetRef.current = currentSet; }, [currentSet]);
+    useEffect(() => { recordedVideoUrlRef.current = recordedVideoUrl; }, [recordedVideoUrl]);
 
     const showCountdownOverlay =
         isRunning && !showPlacementOverlay && personDetected && !initialDetectionTimerDone;
@@ -144,6 +156,68 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                     audio: false,
                 });
                 streamRef.current = stream;
+
+                let mimeType = "";
+                let ext = "webm";
+                if (MediaRecorder.isTypeSupported("video/mp4;codecs=avc1.42E01E,mp4a.40.2")) {
+                    mimeType = "video/mp4;codecs=avc1.42E01E,mp4a.40.2";
+                    ext = "mp4";
+                } else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9")) {
+                    mimeType = "video/webm;codecs=vp9";
+                    ext = "webm";
+                } else if (MediaRecorder.isTypeSupported("video/webm")) {
+                    mimeType = "video/webm";
+                    ext = "webm";
+                }
+                mediaRecorderRef.current = new MediaRecorder(stream, ...(mimeType ? [{ mimeType }] : []));
+                // Setup MediaRecorder event handlers
+                recordedBlobsRef.current = [];
+                mediaRecorderRef.current.ondataavailable = (event: BlobEvent) => {
+                    if (event.data && event.data.size > 0) {
+                        recordedBlobsRef.current.push(event.data);
+                    }
+                };
+                mediaRecorderRef.current.onstop = async () => {
+                    const usedMime = mediaRecorderRef.current?.mimeType || mimeType || "video/webm";
+                    const superBlob = new Blob(recordedBlobsRef.current, { type: usedMime });
+                    // Dateiendung anhand des tatsächlich verwendeten Typs
+                    let realExt = ext;
+                    if (usedMime.includes("mp4")) realExt = "mp4";
+                    else if (usedMime.includes("webm")) realExt = "webm";
+                    const prevUrl = recordedVideoUrlRef.current;
+                    if (prevUrl) {
+                        URL.revokeObjectURL(prevUrl);
+                    }
+                    const newUrl = URL.createObjectURL(superBlob);
+                    setRecordedVideoUrl(newUrl);
+                    recordedVideoUrlRef.current = newUrl;
+                    setUploadStatus("Uploading video...");
+                    try {
+                        const formData = new FormData();
+                        formData.append("file", superBlob, `${exercise}_${currentSetRef.current}_feedback.${realExt}`);
+                        formData.append("exercise", exercise);
+                        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_HTTP_URL || `https://usc-member-editions-drops.trycloudflare.com`;
+                        console.log("Blob size (MB):", (superBlob.size));
+                        const res = await fetch(`${backendUrl}/upload`, {
+                            method: "POST",
+                            body: formData,
+                        });
+                        if (res.ok) {
+                            setUploadStatus("Upload erfolgreich!");
+                        } else {
+                            setUploadStatus("Upload fehlgeschlagen.");
+                        }
+                    } catch (err) {
+                        setUploadStatus("Upload fehlgeschlagen.");
+                    }
+                    setTimeout(() => setUploadStatus(""), 4000);
+                };
+
+                // Start recording immediately — the stream is live right now.
+                // handleStart() cannot call .start() itself because this useEffect
+                // (and therefore the MediaRecorder) runs *after* setIsRunning(true).
+                recordedBlobsRef.current = [];
+                mediaRecorderRef.current.start();
 
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
@@ -382,6 +456,27 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
 
     // Handlers for starting exercise, ending set, moving to next set, and stopping exercise
     const handleStart = async () => {
+        // Lösche alle Feedback-Videos für dieses Exercise und alle Sets
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_HTTP_URL || `https://usc-member-editions-drops.trycloudflare.com`;
+        for (let setNum = 1; setNum <= totalSets; setNum++) {
+            const videoPath = `/${exercise}_${setNum}_feedback.mp4`;
+            try {
+                await fetch(`${backendUrl}/delete_video`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path: videoPath })
+                });
+            } catch (e) {
+                console.error(`Error occurred while deleting video: ${videoPath}`, e);
+            }
+        }
+        recordedBlobsRef.current = [];
+        const prevUrl = recordedVideoUrlRef.current;
+        if (prevUrl) {
+            URL.revokeObjectURL(prevUrl);
+            setRecordedVideoUrl("");
+            recordedVideoUrlRef.current = "";
+        }
         AudioPlayback();
         setStatus("Initializing camera...");
         setShowPlacementOverlay(true);
@@ -398,8 +493,35 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
     };
 
     const handleEndSet = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+            mediaRecorderRef.current.stop();
+        }
         setIsRunning(false);
         setShowFeedbackScreen(true);
+        setShowExerciseVideo(false);
+
+        // Polling-Mechanismus: prüfe alle 3 Sekunden, ob das Video existiert
+        const videoPath = `/${exercise}_${currentSet}_feedback.mp4`;
+        let pollInterval: NodeJS.Timeout | null = null;
+        const checkVideo = async () => {
+            try {
+                const res = await fetch(videoPath, { method: "HEAD" });
+                if (res.ok) {
+                    setShowExerciseVideo(true);
+                    if (pollInterval) clearInterval(pollInterval);
+                }
+            } catch (e) {
+                // ignore
+            }
+        };
+        pollInterval = setInterval(checkVideo, 3000);
+        // Starte sofort den ersten Check
+        checkVideo();
+
+        if (wsRef.current) {
+            wsRef.current.close();
+            wsRef.current = null;
+        }
     };
 
     const handleNextSet = () => {
@@ -416,6 +538,9 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
     };
 
     const handleStop = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+            mediaRecorderRef.current.stop();
+        }
         setStatus("Stopped.");
         setShowPlacementOverlay(false);
         setPersonDetected(false);
@@ -429,6 +554,10 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
             overlayTimeoutRef.current = null;
         }
         setIsRunning(false);
+        if (wsRef.current) {
+            wsRef.current.close();
+            wsRef.current = null;
+        }
     };
 
 
@@ -473,7 +602,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                         </button>
                     </div>
                 </div>
-                
+
                 <RepSetCounter />
 
                 {/* Connection status, rep/set counters, and performance metrics */}
@@ -515,40 +644,51 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
 
                 {/* Livestream Window */}
                 <div className="relative h-104 w-full overflow-hidden rounded-xl border border-blue-800/60 bg-black/30 md:h-136">
+                    {uploadStatus && (
+                        <div className="absolute top-2 left-2 z-30 bg-slate-800/90 text-white px-3 py-1 rounded shadow">
+                            {uploadStatus}
+                        </div>
+                    )}
                     {showFeedbackScreen && (
                         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 from-blue-900/60 to-slate-900/60 p-4 text-center">
-                            <div className="flex flex-col items-center justify-center gap-6 w-full h-full">
-                                <h2 className="text-4xl font-bold text-white">Set {currentSet} Complete! 🎉</h2>
-                                <p className="text-2xl text-slate-300">
-                                    You completed <span className="text-green-400 font-bold text-3xl">{currentReps}/{targetReps}</span> reps
-                                </p>
-                                <div className="flex flex-col gap-4 mt-auto mb-auto">
-                                    {currentSet < totalSets ? (
-                                        <>
-                                            <button
-                                                type="button"
-                                                onClick={handleNextSet}
-                                                className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
-                                            >
-                                                Next Set
-                                            </button>
+                            <div className="flex flex-row items-center justify-center gap-6 w-full h-full sm: flex flex-col">
+                                <div className="flex flex-col items-center justify-center gap-4">
+                                    <h2 className="text-4xl font-bold text-white">Set {currentSet} Complete! 🎉</h2>
+                                    <p className="text-2xl text-slate-300">
+                                        You completed <span className="text-green-400 font-bold text-3xl">{currentReps}/{targetReps}</span> reps
+                                    </p>
+                                    <div className="flex flex-col gap-4 mt-auto mb-auto">
+                                        {currentSet < totalSets ? (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleNextSet}
+                                                    className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
+                                                >
+                                                    Next Set
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleStop}
+                                                    className="rounded-lg bg-slate-700 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-slate-600"
+                                                >
+                                                    Stop Exercise
+                                                </button>
+                                            </>
+                                        ) : (
                                             <button
                                                 type="button"
                                                 onClick={handleStop}
-                                                className="rounded-lg bg-slate-700 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-slate-600"
+                                                className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
                                             >
-                                                Stop Exercise
+                                                Finish Workout 🏆
                                             </button>
-                                        </>
-                                    ) : (
-                                        <button
-                                            type="button"
-                                            onClick={handleStop}
-                                            className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
-                                        >
-                                            Finish Workout 🏆
-                                        </button>
-                                    )}
+                                        )}
+                                    </div>
+                                    {showExerciseVideo ? (
+                                        <ExerciseVideo src={`/${exercise}_${currentSet}_feedback.mp4`} />
+
+                                    ) : null}
                                 </div>
                             </div>
                         </div>

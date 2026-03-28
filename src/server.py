@@ -1,3 +1,6 @@
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
 """
 server.py — FastAPI WebSocket API for Visual Spotter
 
@@ -10,7 +13,6 @@ Frontend connects to:
 
 import os
 import sys
-import traceback
 from contextlib import asynccontextmanager
 from init_functions import download_packets, create_required_directories
 
@@ -19,7 +21,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -48,6 +50,48 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.mount("/feedback", StaticFiles(directory=FEEDBACK_DIR), name="feedback")
+
+# ── Video Delete Endpoint ─────────────────────────────────────────────
+@app.post("/delete_video")
+async def delete_video(request: Request):
+    """
+    Löscht eine Video-Datei im frontend/public-Ordner, wenn sie existiert.
+    Erwartet JSON: { "path": "/squat_1_feedback.mp4" }
+    """
+    data = await request.json()
+    rel_path = data.get("path", "")
+    if not rel_path or "/" in rel_path.strip("/"):
+        return JSONResponse({"status": "error", "detail": "Invalid path."}, status_code=400)
+    public_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "public")
+    abs_path = os.path.abspath(os.path.join(public_dir, rel_path.lstrip("/")))
+    if not abs_path.startswith(public_dir):
+        return JSONResponse({"status": "error", "detail": "Invalid path."}, status_code=400)
+    if os.path.exists(abs_path):
+        try:
+            os.remove(abs_path)
+            return {"status": "success", "detail": f"Deleted {rel_path}"}
+        except Exception as e:
+            return JSONResponse({"status": "error", "detail": str(e)}, status_code=500)
+    else:
+        return {"status": "success", "detail": f"File {rel_path} does not exist."}
+
+# ── HTTP Upload Endpoint ─────────────────────────────────────────────
+from datetime import datetime
+@app.post("/upload")
+async def upload_video(
+    file: UploadFile = File(...),
+    exercise: str = Form("unknown")
+):
+    """
+    Accepts a video file upload and saves it to the videos/ directory.
+    """
+    public_dir = os.path.dirname(os.path.abspath(__file__)) + "/frontend/public"
+    filename = f"{file.filename}"
+    save_path = os.path.join(public_dir, filename)
+    with open(save_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+    return {"status": "success", "filename": filename}
 
 app.add_middleware(
     CORSMiddleware,
@@ -195,7 +239,10 @@ async def livestream_endpoint(websocket: WebSocket, exercise: str = "squat"):
     try:
         while True:
             # 1. Receive either a raw JPEG frame or a JSON control message
-            message = await websocket.receive()
+            try:
+                message = await websocket.receive()
+            except (WebSocketDisconnect, RuntimeError):
+                break
 
             if "bytes" in message:
                 # JPEG frame from browser
@@ -255,5 +302,7 @@ async def livestream_endpoint(websocket: WebSocket, exercise: str = "squat"):
                 except Exception:
                     pass  # ignore malformed control messages
 
-    except WebSocketDisconnect:
+    except Exception as e:
         pass  # browser closed the tab or stopped the stream
+    finally:
+     session.close() 

@@ -78,7 +78,7 @@ class SquatFormChecker:
         self.cam_pos = detect_cam_pos(required_landmarks)
         
 
-        print(f"Camera Position Detected: {self.cam_pos}")
+        #print(f"Camera Position Detected: {self.cam_pos}")
         if any(landmark[4] < 0.95 for landmark in required_landmarks):
             message = "Please adjust the camera until your whole body is visible."
            #cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
@@ -207,7 +207,7 @@ class SquatFormChecker:
         right_foot_length = right_foot_length + threshold
         left_foot_length = left_foot_length + threshold
 
-        print(f"Right Knee Projection: {right_knee_projection:.3f}, Left Knee Projection: {left_knee_projection:.3f}, Right Foot Length: {right_foot_length:.3f}, Left Foot Length: {left_foot_length:.3f}")
+        #print(f"Right Knee Projection: {right_knee_projection:.3f}, Left Knee Projection: {left_knee_projection:.3f}, Right Foot Length: {right_foot_length:.3f}, Left Foot Length: {left_foot_length:.3f}")
 
         right_over_toes = right_knee_projection > right_foot_length
         left_over_toes = left_knee_projection > left_foot_length
@@ -220,7 +220,7 @@ class SquatFormChecker:
 
 
         # Independent checks for both issues
-        print("self.cam_pos:", self.cam_pos)
+        #print("self.cam_pos:", self.cam_pos)
         if (self.cam_pos == "right" and right_over_toes) or (self.cam_pos == "left" and left_over_toes):
             message = "KNEE TRACKING: Knees are going over your toes."
             color = self.red
