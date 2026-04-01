@@ -42,21 +42,8 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
     const audioQueueRef = useRef<string[]>([]);
     const audioPlayingRef = useRef<boolean>(false);
     const audioUnlockedRef = useRef<boolean>(false);
-
-    const normalizeAudioUrl = (rawUrl: string) => {
-        try {
-            const normalized = new URL(rawUrl, window.location.origin);
-
-            // Avoid mixed-content blocking when frontend is served over HTTPS.
-            if (window.location.protocol === "https:" && normalized.protocol === "http:") {
-                normalized.protocol = "https:";
-            }
-
-            return normalized.toString();
-        } catch {
-            return rawUrl;
-        }
-    };
+    const currentSetRef = useRef<number>(1);
+    const recordedVideoUrlRef = useRef<string>("");
 
     // State for UI status and performance metrics
     const [status, setStatus] = useState<string>("Initializing camera...");
@@ -74,16 +61,25 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
     const [showFeedbackScreen, setShowFeedbackScreen] = useState<boolean>(false);
     const [showExerciseVideo, setShowExerciseVideo] = useState<boolean>(false);
     const [targetRepsInput, setTargetRepsInput] = useState<string>("10");
-    const [uploadStatus, setUploadStatus] = useState<string>(""); 
+    const [uploadStatus, setUploadStatus] = useState<string>("");
     const [recordedVideoUrl, setRecordedVideoUrl] = useState<string>("");
     const [sessionId, setSessionId] = useState<string>("");
     const [aiFeedback, setAIFeedback] = useState<string>("");
 
-    // Refs to avoid stale closures in MediaRecorder callbacks
-    const currentSetRef = useRef<number>(1);
-    const recordedVideoUrlRef = useRef<string>("");
-    useEffect(() => { currentSetRef.current = currentSet; }, [currentSet]);
-    useEffect(() => { recordedVideoUrlRef.current = recordedVideoUrl; }, [recordedVideoUrl]);
+    const normalizeAudioUrl = (rawUrl: string) => {
+        try {
+            const normalized = new URL(rawUrl, window.location.origin);
+
+            // Avoid mixed-content blocking when frontend is served over HTTPS.
+            if (window.location.protocol === "https:" && normalized.protocol === "http:") {
+                normalized.protocol = "https:";
+            }
+
+            return normalized.toString();
+        } catch {
+            return rawUrl;
+        }
+    };
 
     const showCountdownOverlay =
         isRunning && !showPlacementOverlay && personDetected && !initialDetectionTimerDone;
@@ -138,6 +134,9 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
             currentSet === 2 ? "/cam_side.svg" :
                 "/cam_otherSide.svg";
     };
+
+    useEffect(() => { currentSetRef.current = currentSet; }, [currentSet]);
+    useEffect(() => { recordedVideoUrlRef.current = recordedVideoUrl; }, [recordedVideoUrl]);
 
     // Main effect to handle camera access, WebSocket connection, and streaming logic
     useEffect(() => {
@@ -217,7 +216,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                 };
 
                 recordedBlobsRef.current = [];
-                
+
 
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
@@ -226,8 +225,6 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
 
                 setStatus("Connecting to backend...");
 
-                // Prefer explicit backend URL from env (works with ngrok/cloudflared),
-                // otherwise fall back to same-host + configurable port for local dev.
                 const envBackendBase = process.env.NEXT_PUBLIC_BACKEND_WS_URL?.trim();
                 let wsUrl: string;
 
@@ -245,6 +242,8 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                 wsRef.current = ws;
 
                 ws.onopen = () => {
+
+                    // Handling of websocket connection open: update status, initialize adaptive streaming parameters, and start sending frames at regular intervals
                     setConnected(true);
                     setStatus("Connected. Running live form check...");
                     adaptiveWidthRef.current = STREAM_CONFIG.STREAM_MAX_WIDTH;
@@ -299,6 +298,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                 };
 
                 ws.onmessage = (event) => {
+                    // Handle incoming messages: control messages as JSON strings and annotated frames as binary data
                     if (typeof event.data === "string") {
                         try {
                             const payload = JSON.parse(event.data) as {
@@ -459,7 +459,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
         if (!recorder) return;
         if (recorder.state === "inactive") {
             recordedBlobsRef.current = [];
-            recorder.start(2000);
+            recorder.start(1000);
         }
     }, [isRunning, initialDetectionTimerDone]);
 
@@ -476,6 +476,8 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
         for (let setNum = 1; setNum <= totalSets; setNum++) {
             const videoPath = `/${exercise}_${setNum}_feedback.mp4`;
             try {
+
+                // Delete any existing feedback videos and snapshots from previous sessions to avoid confusion and free up storage
                 await fetch(`${backendUrl}/delete_video`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -513,12 +515,13 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
         setIsRunning(true);
     };
 
+    // Handle end of set: stop recording, show feedback screen, poll for feedback video availability, and fetch AI feedback from backend. Also close WebSocket connection to stop live stream and free up resources while user reviews feedback.
     const handleEndSet = async () => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
             mediaRecorderRef.current.stop();
         }
 
-         setIsRunning(false)
+        setIsRunning(false)
         setShowFeedbackScreen(true);
         setShowExerciseVideo(false);
 
@@ -671,59 +674,67 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
 
                 {/* Full-window Feedback Screen Overlay */}
                 {showFeedbackScreen && (
-                    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-blue-950/95 p-4 text-center">
-                        <div className="flex flex-row items-center justify-center gap-6 w-full h-full sm:flex-col">
-                            <div className="flex flex-col items-center justify-center gap-4">
+                    <div className="fixed inset-0 z-50 overflow-y-auto bg-blue-950/95 p-4">
+                        <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 rounded-2xl border border-blue-800/60 bg-blue-900/30 p-4 text-center sm:p-6">
+                            <div className="flex flex-col items-center gap-2">
                                 <h2 className="text-4xl font-bold text-white">Set {currentSet} Complete! 🎉</h2>
                                 <p className="text-2xl text-slate-300">
                                     You completed <span className="text-green-400 font-bold text-3xl">{currentReps}/{targetReps}</span> reps
                                 </p>
-                                <div className="flex flex-col gap-4 mt-auto mb-auto">
-                                    {currentSet < totalSets ? (
-                                        <>
-                                            <button
-                                                type="button"
-                                                onClick={handleNextSet}
-                                                className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
-                                            >
-                                                Next Set
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={handleStop}
-                                                className="rounded-lg bg-slate-700 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-slate-600"
-                                            >
-                                                Stop Exercise
-                                            </button>
-                                        </>
-                                    ) : (
-                                        <button
-                                            type="button"
-                                            onClick={handleStop}
-                                            className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
-                                        >
-                                            Finish Workout 🏆
-                                        </button>
-                                    )}
-                                </div>
+                            </div>
+
+                            <div className="rounded-xl border border-blue-800/60 bg-blue-950/40 p-3 sm:p-4">
+                                <h3 className="mb-3 text-lg font-semibold text-white">Set Video</h3>
                                 {showExerciseVideo ? (
                                     <ExerciseVideo src={`/${exercise}_${currentSet}_feedback.mp4`} />
                                 ) : (
-                                    <div className="flex h-full items-center justify-center px-4 text-center text-sm text-slate-400">
+                                    <div className="flex h-40 items-center justify-center px-4 text-center text-sm text-slate-400">
                                         {"Video loading..."}
                                     </div>
                                 )}
                             </div>
-                            {aiFeedback ? (
-                                <div className="flex flex-col items-center justify-center gap-4 max-w-lg">
-                                    <h3 className="text-2xl font-bold text-white">AI Feedback</h3>
-                                    <p className="text-lg text-slate-300">{aiFeedback}</p>
-                                </div>
-                            ) : (
-                                <div className="flex h-full items-center justify-center px-4 text-center text-sm text-slate-400">
-                                    {"Generating AI feedback..."}
-                                </div>
-                            )}
+
+                            <div className="rounded-xl border border-blue-800/60 bg-blue-950/40 p-4 text-left">
+                                <h3 className="mb-3 text-center text-2xl font-bold text-white">AI Feedback</h3>
+                                {aiFeedback ? (
+                                    <p className="whitespace-pre-line text-base leading-relaxed text-slate-200 sm:text-lg">
+                                        {aiFeedback}
+                                    </p>
+                                ) : (
+                                    <p className="text-center text-sm text-slate-400">
+                                        {"Generating AI feedback..."}
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className="flex flex-col gap-3 pt-1">
+                                {currentSet < totalSets ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={handleNextSet}
+                                            className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
+                                        >
+                                            Next Set
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleStop}
+                                            className="rounded-lg bg-slate-700 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-slate-600"
+                                        >
+                                            Stop Exercise
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={handleStop}
+                                        className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
+                                    >
+                                        Finish Workout 🏆
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}
