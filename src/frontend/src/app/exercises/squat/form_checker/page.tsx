@@ -49,8 +49,8 @@ function ImportantNotice() {
                     <h3 className="text-lg font-bold text-yellow-900 mb-1">Important Notice</h3>
                     <p className="text-yellow-900 text-base leading-relaxed">
                         The Form Checker uses Artificial Intelligence to detect your form in real-time and provide personalized feedback.<br className="hidden sm:block" />
-                        <span className="font-semibold">Inaccuracies may occur</span> due to lighting or camera angle, and the AI may occasionally provide incorrect feedback.<br className="hidden sm:block" />
-                        <span className="font-semibold">Always prioritize safety</span> and listen to your body. If you feel pain or discomfort, stop exercising and consult a professional.
+                        <span className="font-semibold"> Inaccuracies may occur</span> due to lighting or camera angle, and the AI may occasionally provide incorrect feedback.<br className="hidden sm:block" />
+                        <span className="font-semibold"> Always prioritize safety</span> and listen to your body. If you feel pain or discomfort, stop exercising and consult a professional.
                     </p>
                 </div>
             </div>

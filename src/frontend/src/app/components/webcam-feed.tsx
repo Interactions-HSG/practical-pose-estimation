@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Countdown from "./countdown";
 import ExerciseVideo from "./exercise-video";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 
 type WebcamFeedProps = {
@@ -44,6 +46,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
     const audioUnlockedRef = useRef<boolean>(false);
     const currentSetRef = useRef<number>(1);
     const recordedVideoUrlRef = useRef<string>("");
+    const uploadCompletionResolverRef = useRef<(() => void) | null>(null);
 
     // State for UI status and performance metrics
     const [status, setStatus] = useState<string>("Initializing camera...");
@@ -211,6 +214,11 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                         }
                     } catch (err) {
                         setUploadStatus("Upload failed.");
+                    } finally {
+                        if (uploadCompletionResolverRef.current) {
+                            uploadCompletionResolverRef.current();
+                            uploadCompletionResolverRef.current = null;
+                        }
                     }
                     setTimeout(() => setUploadStatus(""), 4000);
                 };
@@ -271,7 +279,11 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                         const ctx = canvas.getContext("2d");
                         if (!ctx) return;
 
+                        ctx.save();
+                        ctx.translate(canvas.width, 0);
+                        ctx.scale(-1, 1);
                         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        ctx.restore();
                         sendingRef.current = true;
 
                         // Convert canvas to JPEG blob and send via WebSocket
@@ -517,13 +529,19 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
 
     // Handle end of set: stop recording, show feedback screen, poll for feedback video availability, and fetch AI feedback from backend. Also close WebSocket connection to stop live stream and free up resources while user reviews feedback.
     const handleEndSet = async () => {
+        let waitForUpload = Promise.resolve();
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+            waitForUpload = new Promise<void>((resolve) => {
+                uploadCompletionResolverRef.current = resolve;
+            });
             mediaRecorderRef.current.stop();
         }
 
-        setIsRunning(false)
         setShowFeedbackScreen(true);
         setShowExerciseVideo(false);
+
+        // Ensure MediaRecorder finalizes and upload finishes before requesting AI feedback.
+        await waitForUpload;
 
         const videoPath = `/${exercise}_${currentSet}_feedback.mp4`;
         let pollInterval: NodeJS.Timeout | null = null;
@@ -548,6 +566,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
         const data = await res.json();
         setAIFeedback(data.feedback);
 
+        setIsRunning(false)
         if (wsRef.current) {
             wsRef.current.close();
             wsRef.current = null;
@@ -697,9 +716,20 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                             <div className="rounded-xl border border-blue-800/60 bg-blue-950/40 p-4 text-left">
                                 <h3 className="mb-3 text-center text-2xl font-bold text-white">AI Feedback</h3>
                                 {aiFeedback ? (
-                                    <p className="whitespace-pre-line text-base leading-relaxed text-slate-200 sm:text-lg">
-                                        {aiFeedback}
-                                    </p>
+                                    <div className="text-base leading-relaxed text-slate-200 sm:text-lg">
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkGfm]}
+                                            components={{
+                                                p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
+                                                strong: ({ children }) => <strong className="font-bold text-white">{children}</strong>,
+                                                ul: ({ children }) => <ul className="mb-4 list-disc space-y-1 pl-6 last:mb-0">{children}</ul>,
+                                                ol: ({ children }) => <ol className="mb-4 list-decimal space-y-1 pl-6 last:mb-0">{children}</ol>,
+                                                li: ({ children }) => <li>{children}</li>,
+                                            }}
+                                        >
+                                            {aiFeedback}
+                                        </ReactMarkdown>
+                                    </div>
                                 ) : (
                                     <p className="text-center text-sm text-slate-400">
                                         {"Generating AI feedback..."}
