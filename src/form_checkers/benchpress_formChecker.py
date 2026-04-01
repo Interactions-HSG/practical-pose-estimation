@@ -1,5 +1,5 @@
 import numpy as np
-from ._utilityFunctions import calculate_angle, detect_cam_pos, play_audio_feedback
+from ._utilityFunctions import calculate_angle, detect_cam_pos, play_audio_feedback, save_snapshot
 import cv2
 import pygame
 import time
@@ -42,10 +42,20 @@ class BenchpressFormChecker:
 
         self.rep_counter = 0
 
+        # Variables for AI feedback
+        self.raw_feedbacks = []
+
+        # Snapshot state tracking
+        self._last_rom_state = None
+        self._last_grip_state = None
+        self._last_side_snapshot_at = 0.0
+        self.side_snapshot_interval_seconds = 3.0
+
+
     def check_benchpress_form(self, annotated, landmarks: np.array, rom_achieved, init_pos):
         if landmarks is None or landmarks.shape[0] != 17:
             cv2.putText(self.annotated, "Insufficient landmarks for benchpress form check.", (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
-            return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+            return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
         self.annotated = annotated
 
@@ -67,7 +77,6 @@ class BenchpressFormChecker:
         # YOLO keypoints are [x, y, conf]. Require confident keypoints before feedback.
         if any(landmark[2] < 0.75 for landmark in required_landmarks):
             message = "Please adjust the camera until your whole body is visible."
-           # cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
 
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
@@ -80,7 +89,7 @@ class BenchpressFormChecker:
                                                                                                     detected=self.detected,
                                                                                                     play_local_audio=self.play_local_audio, 
                                                                                                     queue_audio_event=self.queue_audio_event)
-            return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+            return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
         else:
             message = "You have been detected!"
@@ -101,32 +110,36 @@ class BenchpressFormChecker:
                 if not self.initial_detection_timer_done:
                     if self.initial_detection_timer_started_at is None:
                         self.initial_detection_timer_started_at = time.monotonic()
-                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
                     elapsed = time.monotonic() - self.initial_detection_timer_started_at
                     if elapsed < self.initial_detection_timer_seconds:
-                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
                     self.initial_detection_timer_done = True
                     self.initial_detection_timer_started_at = None
 
                 if cam_pos == "front":
                     self._check_grip_width()
-                    rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter = self._check_range_of_motion(rom_achieved, init_pos)
-                #elif cam_pos == "left" or cam_pos == "right":
-                    # For side view --> AI feedback 
+                    rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_range_of_motion(rom_achieved, init_pos)
+                elif cam_pos in ("left", "right"):
+                    self._capture_side_snapshot_if_due(cam_pos)
             
-        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
+
+    def _capture_side_snapshot_if_due(self, cam_pos: str):
+        now = time.monotonic()
+        if now - self._last_side_snapshot_at < self.side_snapshot_interval_seconds:
+            return
+
+        timestamp = time.strftime("%M%S")
+        save_snapshot(self.annotated, f"benchpress_side_{cam_pos}_{timestamp}.jpg")
+        self._last_side_snapshot_at = now
 
     def _check_range_of_motion(self, rom_achieved, init_pos):
 
-        feedback_position = (10, 140)
-
         left_elbow_angle = calculate_angle(self.left_shoulder[:2], self.left_elbow[:2], self.left_wrist[:2])
         right_elbow_angle = calculate_angle(self.right_shoulder[:2], self.right_elbow[:2], self.right_wrist[:2])
-
-        # cv2.putText(self.annotated, f"{int(left_elbow_angle)}", (int(self.left_elbow[0]), int(self.left_elbow[1])), self.font, self.font_size, self.green, self.thickness, self.line)
-        # cv2.putText(self.annotated, f"{int(right_elbow_angle)}", (int(self.right_elbow[0]), int(self.right_elbow[1])), self.font, self.font_size, self.green, self.thickness, self.line)
 
         elbow_flexion_threshold = 145
         range_of_motion_threshold = 50
@@ -136,11 +149,11 @@ class BenchpressFormChecker:
             if init_pos:
                 init_pos = False
                 self.rom_start_time = time.time()
-                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
             # Check if we are still within the ROM delay period to false trigger audio feedback and only provide feedback after the delay has passed
             if self.rom_start_time is not None and (time.time() - self.rom_start_time) < self.rom_delay_seconds:
-                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
             if left_elbow_angle < range_of_motion_threshold or right_elbow_angle < range_of_motion_threshold:
                 color = self.green
@@ -148,19 +161,25 @@ class BenchpressFormChecker:
                 audio_text = f"{message}. Good job"
                 rom_achieved = True
                 file_ending = ".mp3"
+                if self._last_rom_state != "good":
+                    save_snapshot(self.annotated, "benchpress_romGood_snapshot.jpg")
+                self._last_rom_state = "good"
             elif rom_achieved != True and init_pos == False:
                 color = self.red
                 message = "RANGE OF MOTION: Try to lower the weights to your lower chest for a better muscle activation."
                 audio_text = f"{message}. Please adjust your form"
                 file_ending = "_lower.mp3"
+                if self._last_rom_state != "bad":
+                    save_snapshot(self.annotated, "benchpress_romBad_snapshot.jpg")
+                self._last_rom_state = "bad"
             else:
                 color = self.red
                 message = "RANGE OF MOTION: Try to push up the weights until your arms are fully extended."
                 audio_text = f"{message}. Please adjust your form"
                 file_ending = "_extended.mp3"
-            
-           # cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
-
+                if self._last_rom_state != "extended":
+                    save_snapshot(self.annotated, "benchpress_romExtended_snapshot.jpg")
+                self._last_rom_state = "extended"
 
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
@@ -181,10 +200,9 @@ class BenchpressFormChecker:
             rom_achieved = False
 
 
-        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
     def _check_grip_width(self):
-        feedback_position = (10, 100)
 
         dist_shoulders = np.linalg.norm(self.right_shoulder[:2] - self.left_shoulder[:2])
         grip_width = np.linalg.norm(self.right_wrist[:2] - self.left_wrist[:2]) 
@@ -197,17 +215,25 @@ class BenchpressFormChecker:
             message = "GRIP WIDTH: Try to widen your grip"
             audio_text = f"{message}. Please adjust your form"
             file_ending = "_wider.mp3"
+            if self._last_grip_state != "narrow":
+                save_snapshot(self.annotated, "benchpress_gripNarrow_snapshot.jpg")
+            self._last_grip_state = "narrow"
         elif grip_width > grip_width_threshold_max:
             color = self.red
             message = "GRIP WIDTH: Try to narrow your grip"
             audio_text = f"{message}. Please adjust your form"
             file_ending = "_narrower.mp3"
+            if self._last_grip_state != "wide":
+                save_snapshot(self.annotated, "benchpress_gripWide_snapshot.jpg")
+            self._last_grip_state = "wide"
         else:
             color = self.green
             message = "GRIP WIDTH: Good grip width"
             audio_text = f"{message}. Good job!"
             file_ending = ".mp3"
-        #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
+            if self._last_grip_state != "good":
+                save_snapshot(self.annotated, "benchpress_gripGood_snapshot.jpg")
+            self._last_grip_state = "good"
 
         if self.tts:
             self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(

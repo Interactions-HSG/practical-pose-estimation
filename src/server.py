@@ -1,27 +1,18 @@
 from fastapi import Request
 from fastapi.responses import JSONResponse
-
-"""
-server.py — FastAPI WebSocket API for Visual Spotter
-
-Start with:
-    uvicorn server:app --reload --port 8000
-
-Frontend connects to:
-    ws://localhost:8000/ws?exercise=squat   (or bench / bent)
-"""
-
 import os
 import sys
+from feedback_ai import generate_ai_feedback
 from contextlib import asynccontextmanager
 from init_functions import download_packets, create_required_directories
+from uuid import uuid4
 
 # Make sure imports from src/ work when running from the src/ directory
 sys.path.insert(0, os.path.dirname(__file__))
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -31,10 +22,8 @@ from form_checkers import SquatFormChecker, BenchpressFormChecker, BentOverRowFo
 
 FEEDBACK_DIR = create_required_directories('src/feedback')
 
-
 def initialize_app_resources() -> None:
-    """Prepare required directories and model files once at API startup."""
-    video_dir = create_required_directories('videos')
+    # Prepare required directories and model files once at API startup.
     trained_models_dir = create_required_directories('trained_models')
     create_required_directories('src/feedback')
 
@@ -51,13 +40,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.mount("/feedback", StaticFiles(directory=FEEDBACK_DIR), name="feedback")
 
-# ── Video Delete Endpoint ─────────────────────────────────────────────
+# Video Delete Endpoint for feedback videos
 @app.post("/delete_video")
 async def delete_video(request: Request):
-    """
-    Löscht eine Video-Datei im frontend/public-Ordner, wenn sie existiert.
-    Erwartet JSON: { "path": "/squat_1_feedback.mp4" }
-    """
     data = await request.json()
     rel_path = data.get("path", "")
     if not rel_path or "/" in rel_path.strip("/"):
@@ -72,19 +57,28 @@ async def delete_video(request: Request):
             return {"status": "success", "detail": f"Deleted {rel_path}"}
         except Exception as e:
             return JSONResponse({"status": "error", "detail": str(e)}, status_code=500)
+    
     else:
         return {"status": "success", "detail": f"File {rel_path} does not exist."}
+    
+@app.post("/delete_snapshot")
+async def delete_snapshot():
+    snapshots_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "snapshots")
+    if os.path.exists(snapshots_dir):
+        try:
+            for filename in os.listdir(snapshots_dir):
+                file_path = os.path.join(snapshots_dir, filename)
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+            return {"status": "success", "detail": "Deleted all snapshots."}
+        except Exception as e:
+            return JSONResponse({"status": "error", "detail": str(e)}, status_code=500)
 
-# ── HTTP Upload Endpoint ─────────────────────────────────────────────
-from datetime import datetime
+# HTTP Upload Endpoint 
 @app.post("/upload")
 async def upload_video(
     file: UploadFile = File(...),
-    exercise: str = Form("unknown")
 ):
-    """
-    Accepts a video file upload and saves it to the videos/ directory.
-    """
     public_dir = os.path.dirname(os.path.abspath(__file__)) + "/frontend/public"
     filename = f"{file.filename}"
     save_path = os.path.join(public_dir, filename)
@@ -101,8 +95,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Helper: decode an incoming JPEG blob into an OpenCV frame ────────────────
+# API call for generating AI feedback based on collected raw feedbacks and the current exercise
+@app.post("/generate_feedback")
+async def generate_feedback(request: Request):
+    data = await request.json()
+    session_id = data.get("sessionId")
+    currentExercise = data.get("exercise", "unknown")
+    session = ACTIVE_SESSIONS.get(session_id)
+    if not session:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
 
+    feedbacks = session.accumulated_feedbacks.copy()
+    session.accumulated_feedbacks.clear()
+
+    feedback = generate_ai_feedback(feedbacks, currentExercise)
+    session.close() 
+    ACTIVE_SESSIONS.pop(session_id, None)  
+    return {"feedback": feedback}
+
+# Decode an incoming JPEG blob into an OpenCV frame
 def jpeg_to_frame(data: bytes) -> np.ndarray | None:
     """Convert raw JPEG bytes (sent by the browser) into an OpenCV BGR image."""
     arr = np.frombuffer(data, dtype=np.uint8)
@@ -110,29 +121,13 @@ def jpeg_to_frame(data: bytes) -> np.ndarray | None:
     return frame  # None if decoding failed
 
 
-# ── Helper: encode an OpenCV frame back to JPEG bytes ────────────────────────
-
+# Encode an OpenCV frame back to JPEG bytes
 def frame_to_jpeg(frame: np.ndarray, quality: int = 75) -> bytes:
     """Encode an OpenCV BGR image as JPEG bytes to send back to the browser."""
     _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
     return buf.tobytes()
 
-
-# ── Per-connection session ────────────────────────────────────────────────────
-
 class ExerciseSession:
-    """
-    Mirrors the loop in main.py, but for a single WebSocket connection.
-
-    Instead of:
-        cap = cv2.VideoCapture(0)          # read from camera
-        cv2.imshow("Visual Spotter", img)  # show result
-
-    we:
-        receive a JPEG frame from the browser
-        send the annotated JPEG frame back
-    """
-
     def __init__(self, exercise: str):
         self.exercise = exercise
         self.rom_achieved = False
@@ -143,7 +138,10 @@ class ExerciseSession:
         self.lastDetectedStatus = None
         self.lastTimerStatus = None
         self.last_rep_counter = 0
-        self.rep_counter = 0  # Ensure this attribute always exists
+        self.rep_counter = 0
+        self.raw_feedbacks = [] 
+        self.accumulated_feedbacks = []
+        self.currentExercise = None
 
         if exercise in ("squat", "bent"):
             self.estimator = PoseEstimator(mode='image', open_camera=False)
@@ -176,8 +174,7 @@ class ExerciseSession:
         self.pending_audio_events = []
         return events
 
-    # ── Process a single frame ────────────────────────────────────────────────
-
+    # Process a single frame
     def process(self, frame: np.ndarray) -> np.ndarray:
         """
         Runs the same steps as the while-loop in main.py on a single frame.
@@ -193,13 +190,20 @@ class ExerciseSession:
             if points is not None:
 
                 if self.exercise == "squat":
-                    self.rom_achieved, self.init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter = self.checker.check_Squat_form(
+                    self.rom_achieved, self.init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self.checker.check_Squat_form(
                         annotated, points, self.rom_achieved, self.init_pos
                     )
+                    self.currentExercise = "squat"
                 else:
-                    self.rom_achieved, self.init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter = self.checker.check_bentover_form(
+                    self.rom_achieved, self.init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self.checker.check_bentover_form(
                         annotated, points, self.rom_achieved, self.init_pos
                     )
+                    self.currentExercise = "bent"
+
+            for item in self.raw_feedbacks:
+              if isinstance(item, (str, dict)):
+                  self.accumulated_feedbacks.append(item)
+            self.raw_feedbacks.clear()
 
         elif self.exercise == "bench":
             # 1. Run supine estimator on one frontend-provided frame.
@@ -210,9 +214,10 @@ class ExerciseSession:
             if people is not None:
                 best_idx = int(people[:, :, 2].mean(axis=1).argmax())
                 points = people[best_idx]
-                self.rom_achieved, self.init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter = self.checker.check_benchpress_form(
+                self.rom_achieved, self.init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self.checker.check_benchpress_form(
                     annotated, points, self.rom_achieved, self.init_pos
                 )
+                self.currentExercise = "bench"
 
         return annotated
 
@@ -221,21 +226,26 @@ class ExerciseSession:
             self.estimator.landmarker.close()
 
 
-# ── WebSocket endpoint ────────────────────────────────────────────────────────
+ACTIVE_SESSIONS: dict[str, ExerciseSession] = {}
 
+# WebSocket endpoint
 @app.websocket("/livestream")
 async def livestream_endpoint(websocket: WebSocket, exercise: str = "squat"):
     """
     The browser connects here, sends JPEG frames, receives annotated JPEG frames.
     """
     await websocket.accept()
+    session_id = str(uuid4())
     session = ExerciseSession(exercise)
+    ACTIVE_SESSIONS[session_id] = session
     http_scheme = "https" if websocket.url.scheme == "wss" else "http"
     host = websocket.headers.get("host")
     if not host:
         host = websocket.url.netloc
     http_base = f"{http_scheme}://{host}"
 
+    await websocket.send_json({"type": "session_id", "session_id": session_id})
+    
     try:
         while True:
             # 1. Receive either a raw JPEG frame or a JSON control message
@@ -304,5 +314,3 @@ async def livestream_endpoint(websocket: WebSocket, exercise: str = "squat"):
 
     except Exception as e:
         pass  # browser closed the tab or stopped the stream
-    finally:
-     session.close() 

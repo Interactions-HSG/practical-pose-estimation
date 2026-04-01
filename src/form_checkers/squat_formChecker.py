@@ -1,8 +1,9 @@
 import cv2
 import numpy as np
-from ._utilityFunctions import calculate_angle, detect_cam_pos, play_audio_feedback
+from ._utilityFunctions import calculate_angle, detect_cam_pos, play_audio_feedback, save_snapshot
 import pygame
 import time 
+
 class SquatFormChecker:
     '''
     This class is responsible for checking the form of a squat exercise using pose landmarks. It evaluates squat depth and knee tracking as well as checking the form of
@@ -25,11 +26,11 @@ class SquatFormChecker:
         self.red = (0, 0, 255)
         self.depth_achieved = False
 
-        #ROM delay
+        # ROM delay
         self.rom_start_time = None
         self.rom_delay_seconds = 1.8
 
-        #Variables for playing sounds
+        # Variables for playing sounds
         self.language = 'en'
         pygame.mixer.init()
         self.last_audio_end_time = 0
@@ -44,10 +45,18 @@ class SquatFormChecker:
 
         self.rep_counter = 0
 
+        # Variables for AI feedback
+        self.raw_feedbacks = []
+
+        # Snapshot state tracking
+        self._last_knee_state = None
+        self._last_back_state = None
+        self._last_depth_state = None
+
     def check_Squat_form(self, annotated, landmarks: np.array, rom_achieved, init_pos):
         if landmarks is None or landmarks.shape[0] != 33:
             print("Insufficient landmarks for squat form check.")
-            return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+            return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
         self.annotated = annotated
          
@@ -79,9 +88,8 @@ class SquatFormChecker:
         
 
         #print(f"Camera Position Detected: {self.cam_pos}")
-        if any(landmark[4] < 0.95 for landmark in required_landmarks):
+        if any(landmark[4] < 0.90 for landmark in required_landmarks):
             message = "Please adjust the camera until your whole body is visible."
-           #cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
 
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
@@ -97,7 +105,6 @@ class SquatFormChecker:
                                                                                                 )
         else:
             message = "You have been detected!"
-            #cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, self.green, self.thickness, self.line)
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
                                                                                                     text=message,
@@ -115,21 +122,21 @@ class SquatFormChecker:
                 if not self.initial_detection_timer_done:
                     if self.initial_detection_timer_started_at is None:
                         self.initial_detection_timer_started_at = time.monotonic()
-                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
                     elapsed = time.monotonic() - self.initial_detection_timer_started_at
                     if elapsed < self.initial_detection_timer_seconds:
-                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
                     self.initial_detection_timer_done = True
                     self.initial_detection_timer_started_at = None
-                rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter = self._check_depth(rom_achieved, init_pos)
+                rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_depth(rom_achieved, init_pos)
                 if self.init_pos_threshold > self.right_knee_angle and self.init_pos_threshold > self.left_knee_angle:
                     self._check_knee_tracking()
                     if self.cam_pos == "left" or self.cam_pos == "right":
                         self._check_back_form()
 
-        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
     def _check_depth(self, rom_achieved, init_pos):
         # Check if the squat depth is adequate and do not check if depth already achieved or if the person is upright
@@ -137,14 +144,15 @@ class SquatFormChecker:
 
         if self.init_pos_threshold > self.right_knee_angle and self.init_pos_threshold > self.left_knee_angle:
             # Start of Movement (Important for ROM check and to avoid false triggers)
+
             if init_pos:
                 init_pos = False
                 self.rom_start_time = time.time()
-                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
             # Check if we are still within the ROM delay period to false trigger audio feedback and only provide feedback after the delay has passed
             if self.rom_start_time is not None and (time.time() - self.rom_start_time) < self.rom_delay_seconds:
-                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
             if self.right_knee_angle <= depth_achieved_threshold and self.left_knee_angle <= depth_achieved_threshold:
                 self.depth_achieved = True
@@ -152,18 +160,26 @@ class SquatFormChecker:
                 message = "SQUAT DEPTH: Good squat depth achieved."
                 audio_text = f"{message}. Good job!"
                 file_ending = ".mp3"
+                if self._last_depth_state != "good":
+                    save_snapshot(self.annotated, "squat_depthGood_snapshot.jpg")
+                self._last_depth_state = "good"
             elif self.depth_achieved == False:
                 color = self.red
                 message = "SQUAT DEPTH: Try to squat lower to achieve better depth."
                 audio_text = f"{message}. Please adjust your form"
                 file_ending = "_lower.mp3"
+                if self._last_depth_state != "bad":
+                    save_snapshot(self.annotated, "squat_depth_snapshot.jpg")
+                self._last_depth_state = "bad"
             else:
                 color = self.green
                 message = "SQUAT DEPTH: Good squat depth achieved."
                 audio_text = f"{message}. Good job!"
                 file_ending = ".mp3"
+                if self._last_depth_state != "good":
+                    save_snapshot(self.annotated, "squat_depthGood_snapshot.jpg")
+                self._last_depth_state = "good"
         
-            #cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, color, self.thickness, self.line)
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
                                                                                                     text=audio_text,
@@ -176,7 +192,7 @@ class SquatFormChecker:
                                                                                                     play_local_audio=self.play_local_audio,
                                                                                                     queue_audio_event=self.queue_audio_event
                                                                                                 )
-            return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+            return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
         else:
             if self.depth_achieved == True:
@@ -185,12 +201,10 @@ class SquatFormChecker:
             init_pos = True
             rom_achieved = False
             self.rom_start_time = None
-            return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+            return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
 
     def _check_knee_tracking(self): 
-
-        feedback_position = (10, 100)
 
         # Values for knee tracking over toes calculation by projecting the knee position onto the foot direction vector
         right_foot_length = np.linalg.norm(self.right_toe[:2] - self.right_heel[:2])
@@ -207,8 +221,6 @@ class SquatFormChecker:
         right_foot_length = right_foot_length + threshold
         left_foot_length = left_foot_length + threshold
 
-        #print(f"Right Knee Projection: {right_knee_projection:.3f}, Left Knee Projection: {left_knee_projection:.3f}, Right Foot Length: {right_foot_length:.3f}, Left Foot Length: {left_foot_length:.3f}")
-
         right_over_toes = right_knee_projection > right_foot_length
         left_over_toes = left_knee_projection > left_foot_length
 
@@ -220,24 +232,33 @@ class SquatFormChecker:
 
 
         # Independent checks for both issues
-        #print("self.cam_pos:", self.cam_pos)
         if (self.cam_pos == "right" and right_over_toes) or (self.cam_pos == "left" and left_over_toes):
             message = "KNEE TRACKING: Knees are going over your toes."
+            if self._last_knee_state != "over_toes":
+                save_snapshot(self.annotated, "squat_kneeOverToes_snapshot.jpg")
+            self._last_knee_state = "over_toes"
+            self.raw_feedbacks.append(message)
             color = self.red
             audio_text = f"{message}. Please adjust your form"
             file_ending = "_overToes.mp3"
 
         elif self.cam_pos == "front" and (dist_knees < right_dist_knee_heel or dist_knees < left_dist_knee_heel):
             message = "KNEE TRACKING: Knees are caving inwards."
+            if self._last_knee_state != "caving":
+                save_snapshot(self.annotated, "squat_kneeIn_snapshot.jpg")
+            self._last_knee_state = "caving"
+            self.raw_feedbacks.append(message)
             color = self.red
             audio_text = f"{message}. Please adjust your form"
             file_ending = "_inwards.mp3"
         else:
             color = self.green
             message = "KNEE TRACKING: Knees are properly aligned"
+            if self._last_knee_state != "good":
+                save_snapshot(self.annotated, "squat_kneeGood_snapshot.jpg")
+            self._last_knee_state = "good"
             audio_text = f"{message}. Good job!"
             file_ending = ".mp3"
-        #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
         if self.tts:
             self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
                                                                                                 text=audio_text,
@@ -252,8 +273,6 @@ class SquatFormChecker:
                                                                                             )
 
     def _check_back_form(self):
-        
-        feedback_position = (10, 140)
 
         hip_below_left = [self.left_hip[0], self.left_hip[1] - 1, self.left_hip[2]]
         hip_below_right = [self.right_hip[0], self.right_hip[1] - 1, self.right_hip[2]]
@@ -264,15 +283,20 @@ class SquatFormChecker:
 
         if torso_inclination_left < torso_inclination_threshold and torso_inclination_right < torso_inclination_threshold:
             color = self.green
-            message = "BACK FORM: Good back form."   
+            message = "BACK FORM: Good back form." 
+            if self._last_back_state != "good":
+                save_snapshot(self.annotated, "squat_backGood_snapshot.jpg") 
+            self._last_back_state = "good"
             audio_text = f"{message}. Good job!"
             file_ending = ".mp3"
         else:
             color = self.red
             message = "BACK FORM: Try to keep the trunk upright."
+            if self._last_back_state != "bad":
+                save_snapshot(self.annotated, "squat_trunkUp_snapshot.jpg")
+            self._last_back_state = "bad"
             audio_text = f"{message}. Please adjust your form"
             file_ending = "_bad.mp3"
-        #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
 
         if self.tts:
             self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(

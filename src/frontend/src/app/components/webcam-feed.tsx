@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Countdown from "./countdown";
 import ExerciseVideo from "./exercise-video";
 
+
 type WebcamFeedProps = {
     exercise: "squat" | "bench" | "bent";
 };
@@ -73,8 +74,10 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
     const [showFeedbackScreen, setShowFeedbackScreen] = useState<boolean>(false);
     const [showExerciseVideo, setShowExerciseVideo] = useState<boolean>(false);
     const [targetRepsInput, setTargetRepsInput] = useState<string>("10");
-    const [uploadStatus, setUploadStatus] = useState<string>("");
+    const [uploadStatus, setUploadStatus] = useState<string>(""); 
     const [recordedVideoUrl, setRecordedVideoUrl] = useState<string>("");
+    const [sessionId, setSessionId] = useState<string>("");
+    const [aiFeedback, setAIFeedback] = useState<string>("");
 
     // Refs to avoid stale closures in MediaRecorder callbacks
     const currentSetRef = useRef<number>(1);
@@ -180,7 +183,6 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                 mediaRecorderRef.current.onstop = async () => {
                     const usedMime = mediaRecorderRef.current?.mimeType || mimeType || "video/webm";
                     const superBlob = new Blob(recordedBlobsRef.current, { type: usedMime });
-                    // Dateiendung anhand des tatsächlich verwendeten Typs
                     let realExt = ext;
                     if (usedMime.includes("mp4")) realExt = "mp4";
                     else if (usedMime.includes("webm")) realExt = "webm";
@@ -196,28 +198,26 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                         const formData = new FormData();
                         formData.append("file", superBlob, `${exercise}_${currentSetRef.current}_feedback.${realExt}`);
                         formData.append("exercise", exercise);
-                        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_HTTP_URL || `https://usc-member-editions-drops.trycloudflare.com`;
+                        formData.append("session_id", sessionId);
+                        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL;
                         console.log("Blob size (MB):", (superBlob.size));
                         const res = await fetch(`${backendUrl}/upload`, {
                             method: "POST",
                             body: formData,
                         });
                         if (res.ok) {
-                            setUploadStatus("Upload erfolgreich!");
+                            setUploadStatus("Upload successful!");
                         } else {
-                            setUploadStatus("Upload fehlgeschlagen.");
+                            setUploadStatus("Upload failed.");
                         }
                     } catch (err) {
-                        setUploadStatus("Upload fehlgeschlagen.");
+                        setUploadStatus("Upload failed.");
                     }
                     setTimeout(() => setUploadStatus(""), 4000);
                 };
 
-                // Start recording immediately — the stream is live right now.
-                // handleStart() cannot call .start() itself because this useEffect
-                // (and therefore the MediaRecorder) runs *after* setIsRunning(true).
                 recordedBlobsRef.current = [];
-                mediaRecorderRef.current.start();
+                
 
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
@@ -307,6 +307,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                                 detected?: boolean;
                                 timer_done?: boolean;
                                 rep_counter?: number;
+                                session_id?: string;
                             };
 
                             if (payload.type === "audio_feedback" && payload.url) {
@@ -319,6 +320,9 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                             }
                             else if (payload.type === "rep_update") {
                                 setCurrentReps(payload.rep_counter ?? currentReps);
+                            }
+                            else if (payload.type === "session_id") {
+                                setSessionId(payload.session_id ?? "")
                             }
 
                         } catch {
@@ -447,17 +451,28 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
         STREAM_INTERVAL_MS,
     ]);
 
+    // Start recording only after the initial detection countdown has completed.
+    useEffect(() => {
+        if (!isRunning || !initialDetectionTimerDone) return;
+
+        const recorder = mediaRecorderRef.current;
+        if (!recorder) return;
+        if (recorder.state === "inactive") {
+            recordedBlobsRef.current = [];
+            recorder.start(2000);
+        }
+    }, [isRunning, initialDetectionTimerDone]);
+
     // Auto-complete set when target reps reached
     useEffect(() => {
-        if (isRunning && currentReps > 0 && currentReps === targetReps) {
+        if (isRunning && currentReps > 0 && currentReps >= targetReps) {
             handleEndSet();
         }
     }, [currentReps, targetReps, isRunning]);
 
     // Handlers for starting exercise, ending set, moving to next set, and stopping exercise
     const handleStart = async () => {
-        // Lösche alle Feedback-Videos für dieses Exercise und alle Sets
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_HTTP_URL || `https://usc-member-editions-drops.trycloudflare.com`;
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL;
         for (let setNum = 1; setNum <= totalSets; setNum++) {
             const videoPath = `/${exercise}_${setNum}_feedback.mp4`;
             try {
@@ -466,6 +481,12 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ path: videoPath })
                 });
+
+                await fetch(`${backendUrl}/delete_snapshot`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" }
+                });
+
             } catch (e) {
                 console.error(`Error occurred while deleting video: ${videoPath}`, e);
             }
@@ -492,15 +513,15 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
         setIsRunning(true);
     };
 
-    const handleEndSet = () => {
+    const handleEndSet = async () => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
             mediaRecorderRef.current.stop();
         }
-        setIsRunning(false);
+
+         setIsRunning(false)
         setShowFeedbackScreen(true);
         setShowExerciseVideo(false);
 
-        // Polling-Mechanismus: prüfe alle 3 Sekunden, ob das Video existiert
         const videoPath = `/${exercise}_${currentSet}_feedback.mp4`;
         let pollInterval: NodeJS.Timeout | null = null;
         const checkVideo = async () => {
@@ -515,8 +536,14 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
             }
         };
         pollInterval = setInterval(checkVideo, 3000);
-        // Starte sofort den ersten Check
-        checkVideo();
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL;
+        const res = await fetch(`${backendUrl}/generate_feedback`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId, exercise }),
+        });
+        const data = await res.json();
+        setAIFeedback(data.feedback);
 
         if (wsRef.current) {
             wsRef.current.close();
@@ -642,55 +669,70 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                 </div>
 
 
+                {/* Full-window Feedback Screen Overlay */}
+                {showFeedbackScreen && (
+                    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-blue-950/95 p-4 text-center">
+                        <div className="flex flex-row items-center justify-center gap-6 w-full h-full sm:flex-col">
+                            <div className="flex flex-col items-center justify-center gap-4">
+                                <h2 className="text-4xl font-bold text-white">Set {currentSet} Complete! 🎉</h2>
+                                <p className="text-2xl text-slate-300">
+                                    You completed <span className="text-green-400 font-bold text-3xl">{currentReps}/{targetReps}</span> reps
+                                </p>
+                                <div className="flex flex-col gap-4 mt-auto mb-auto">
+                                    {currentSet < totalSets ? (
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={handleNextSet}
+                                                className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
+                                            >
+                                                Next Set
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleStop}
+                                                className="rounded-lg bg-slate-700 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-slate-600"
+                                            >
+                                                Stop Exercise
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={handleStop}
+                                            className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
+                                        >
+                                            Finish Workout 🏆
+                                        </button>
+                                    )}
+                                </div>
+                                {showExerciseVideo ? (
+                                    <ExerciseVideo src={`/${exercise}_${currentSet}_feedback.mp4`} />
+                                ) : (
+                                    <div className="flex h-full items-center justify-center px-4 text-center text-sm text-slate-400">
+                                        {"Video loading..."}
+                                    </div>
+                                )}
+                            </div>
+                            {aiFeedback ? (
+                                <div className="flex flex-col items-center justify-center gap-4 max-w-lg">
+                                    <h3 className="text-2xl font-bold text-white">AI Feedback</h3>
+                                    <p className="text-lg text-slate-300">{aiFeedback}</p>
+                                </div>
+                            ) : (
+                                <div className="flex h-full items-center justify-center px-4 text-center text-sm text-slate-400">
+                                    {"Generating AI feedback..."}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 {/* Livestream Window */}
                 <div className="relative h-104 w-full overflow-hidden rounded-xl border border-blue-800/60 bg-black/30 md:h-136">
                     {uploadStatus && (
                         <div className="absolute top-2 left-2 z-30 bg-slate-800/90 text-white px-3 py-1 rounded shadow">
                             {uploadStatus}
-                        </div>
-                    )}
-                    {showFeedbackScreen && (
-                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 from-blue-900/60 to-slate-900/60 p-4 text-center">
-                            <div className="flex flex-row items-center justify-center gap-6 w-full h-full sm: flex flex-col">
-                                <div className="flex flex-col items-center justify-center gap-4">
-                                    <h2 className="text-4xl font-bold text-white">Set {currentSet} Complete! 🎉</h2>
-                                    <p className="text-2xl text-slate-300">
-                                        You completed <span className="text-green-400 font-bold text-3xl">{currentReps}/{targetReps}</span> reps
-                                    </p>
-                                    <div className="flex flex-col gap-4 mt-auto mb-auto">
-                                        {currentSet < totalSets ? (
-                                            <>
-                                                <button
-                                                    type="button"
-                                                    onClick={handleNextSet}
-                                                    className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
-                                                >
-                                                    Next Set
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={handleStop}
-                                                    className="rounded-lg bg-slate-700 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-slate-600"
-                                                >
-                                                    Stop Exercise
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                onClick={handleStop}
-                                                className="rounded-lg bg-green-600 px-6 py-3 text-lg font-semibold text-white transition-colors hover:bg-green-500"
-                                            >
-                                                Finish Workout 🏆
-                                            </button>
-                                        )}
-                                    </div>
-                                    {showExerciseVideo ? (
-                                        <ExerciseVideo src={`/${exercise}_${currentSet}_feedback.mp4`} />
-
-                                    ) : null}
-                                </div>
-                            </div>
                         </div>
                     )}
                     {showPlacementOverlay && (

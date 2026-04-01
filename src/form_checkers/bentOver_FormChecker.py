@@ -1,5 +1,5 @@
 import numpy as np
-from ._utilityFunctions import calculate_angle, detect_cam_pos, play_audio_feedback
+from ._utilityFunctions import calculate_angle, detect_cam_pos, play_audio_feedback, save_snapshot
 import cv2
 import pygame
 import time
@@ -46,10 +46,19 @@ class BentOverRowFormChecker:
 
         self.rep_counter = 0
 
+        # Variables for AI feedback
+        self.raw_feedbacks = []
+
+        # Snapshot state tracking for AI feedback
+        self._last_back_state = None
+        self._last_rom_state = None
+        self._last_grip_state = None
+
+
     def check_bentover_form(self, annotated, landmarks: np.array, rom_achieved, init_pos):
         if landmarks is None or landmarks.shape[0] != 33:
             print("Insufficient landmarks for bent-over row form check.")
-            return annotated, rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+            return annotated, rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
     
         self.annotated = annotated
 
@@ -72,7 +81,7 @@ class BentOverRowFormChecker:
         
         self.cam_pos = detect_cam_pos(required_landmarks)
 
-        if any(landmark[4] < 0.95 for landmark in required_landmarks):
+        if any(landmark[4] < 0.90 for landmark in required_landmarks):
             message = "Please adjust the camera until your whole body is visible."
             #cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
 
@@ -107,11 +116,11 @@ class BentOverRowFormChecker:
                 if not self.initial_detection_timer_done:
                     if self.initial_detection_timer_started_at is None:
                         self.initial_detection_timer_started_at = time.monotonic()
-                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
                     elapsed = time.monotonic() - self.initial_detection_timer_started_at
                     if elapsed < self.initial_detection_timer_seconds:
-                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
                     self.initial_detection_timer_done = True
                     self.initial_detection_timer_started_at = None
@@ -119,11 +128,11 @@ class BentOverRowFormChecker:
                 self._check_back_form()
 
                 if self.correct_back_form and (self.cam_pos == "left" or self.cam_pos == "right"):
-                    rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter = self._check_range_of_motion(rom_achieved, init_pos)
+                    rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_range_of_motion(rom_achieved, init_pos)
                 elif self.correct_back_form and self.cam_pos == "front":
                     self._check_grip_width()
 
-        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
     def _check_back_form(self):
 
@@ -148,21 +157,29 @@ class BentOverRowFormChecker:
             self.correct_back_form = False
             audio_text = f"{message}. Please adjust your form"
             file_ending = "_horizontal.mp3"
+            if self._last_back_state != "horizontal":
+                save_snapshot(self.annotated, "bentOver_backHorizontal_snapshot.jpg")
+            self._last_back_state = "horizontal"
+
         elif torso_inclination_left > torso_inclination_threshold or torso_inclination_right > torso_inclination_threshold:
             color = self.red
             message = "BACK FORM: Try to keep the trunk in a neutral position."
             self.correct_back_form = False
             audio_text = f"{message}. Please adjust your form"
             file_ending = "_neutral.mp3"
+            if self._last_back_state != "neutral":
+                save_snapshot(self.annotated, "bentOver_backNeutral_snapshot.jpg")
+            self._last_back_state = "neutral"
         else:
             color = self.green
             message = "BACK FORM: Good back form."
             self.correct_back_form = True
             audio_text = f"{message}. Good job!"
             file_ending = ".mp3"
-            
+            if self._last_back_state != "good":
+                save_snapshot(self.annotated, "bentOver_backGood_snapshot.jpg")
+            self._last_back_state = "good"
         
-        #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
         if self.tts:
             self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
                                                                                                 text=audio_text,
@@ -177,7 +194,6 @@ class BentOverRowFormChecker:
                                                                                             )
 
     def _check_range_of_motion(self, rom_achieved, init_pos):
-        feedback_position = (10, 140)
 
         left_elbow_angle = calculate_angle(self.left_shoulder[:3], self.left_elbow[:3], self.left_wrist[:3])
         right_elbow_angle = calculate_angle(self.right_shoulder[:3], self.right_elbow[:3], self.right_wrist[:3])
@@ -198,11 +214,11 @@ class BentOverRowFormChecker:
             if init_pos:
                 init_pos = False
                 self.rom_start_time = time.time()
-                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
             # Check if we are still within the ROM delay period to false trigger audio feedback and only provide feedback after the delay has passed
             if self.rom_start_time is not None and (time.time() - self.rom_start_time) < self.rom_delay_seconds:
-                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+                return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks   
 
             if self.cam_pos == "left" and left_elbow_angle < range_of_motion_threshold and init_pos == False:
                 color = self.green
@@ -210,24 +226,32 @@ class BentOverRowFormChecker:
                 audio_text = f"{message}. Good job!"
                 rom_achieved = True
                 file_ending = ".mp3"
+                if self._last_rom_state != "good":
+                    save_snapshot(self.annotated, "bentOver_romGood_snapshot.jpg")
+                self._last_rom_state = "good"
             elif self.cam_pos == "right" and right_elbow_angle < range_of_motion_threshold and init_pos == False:
                 color = self.green
                 message = "RANGE OF MOTION: Good range of motion."
                 audio_text = f"{message}. Good job!"
                 rom_achieved = True
                 file_ending = ".mp3"
+                if self._last_rom_state != "good":
+                    save_snapshot(self.annotated, "bentOver_romGood_snapshot.jpg")
+                self._last_rom_state = "good"
             elif rom_achieved != True and init_pos == False:
                 color = self.red
                 message = "RANGE OF MOTION: Try to pull the weights higher for a better muscle activation."
                 audio_text = f"{message}. Please adjust your form"
                 file_ending = "_higher.mp3"
+                if self._last_rom_state != "bad":
+                    save_snapshot(self.annotated, "bentOver_romBad_snapshot.jpg")
+                self._last_rom_state = "bad"
             else:
                 color = self.grey
                 message = "RANGE OF MOTION: Good, now lower the weights to the starting position."
                 audio_text = f"{message}"
                 file_ending = "_lower.mp3"
 
-            #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
                                                                                                     text=audio_text,
@@ -248,11 +272,9 @@ class BentOverRowFormChecker:
             rom_achieved = False
             self.rom_start_time = None  # Reset ROM timer when arms are extended
 
-        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter
+        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
     def _check_grip_width(self):
-
-        feedback_position = (10, 140)
 
         left_dist_elbow_wrist = np.linalg.norm(self.left_elbow[:3] - self.left_wrist[:3])
         right_dist_elbow_wrist = np.linalg.norm(self.right_elbow[:3] - self.right_wrist[:3])
@@ -266,19 +288,28 @@ class BentOverRowFormChecker:
             message = "GRIP WIDTH: Try to hold the barbell narrower"
             audio_text = f"{message}. Please adjust your form"
             file_ending = "_narrower.mp3"
+            if self._last_grip_state != "wide":
+                save_snapshot(self.annotated, "bentOver_gripWide_snapshot.jpg")
+            self._last_grip_state = "wide"
+
         elif dist_wrists < narrow_threshold * left_dist_elbow_wrist and dist_wrists < narrow_threshold * right_dist_elbow_wrist:
             color = self.red
             message = "GRIP WIDTH: Try to hold the barbell wider"
             audio_text = f"{message}. Please adjust your form"
             file_ending = "_wider.mp3"
+            if self._last_grip_state != "narrow":
+                save_snapshot(self.annotated, "bentOver_gripNarrow_snapshot.jpg")
+            self._last_grip_state = "narrow"
+
         else:
             color = self.green
             message = "GRIP WIDTH: Good grip width."
             audio_text = f"{message}. Good job!"
             file_ending = ".mp3"
+            if self._last_grip_state != "good":
+                save_snapshot(self.annotated, "bentOver_gripGood_snapshot.jpg")
+            self._last_grip_state = "good"
 
-
-        #cv2.putText(self.annotated, message, feedback_position, self.font, self.font_size, color, self.thickness, self.line)
         if self.tts:
             self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
                                                                                                     text=audio_text,

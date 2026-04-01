@@ -4,6 +4,8 @@ import time
 import os
 from gtts import gTTS
 import pygame
+import cv2
+from PIL import Image
 
 def calculate_angle(a, b, c):
     a = np.array(a)  
@@ -137,3 +139,12 @@ def play_audio_feedback(
 
     return last_audio_end_time, last_filepath, green_queue, detected
 
+def save_snapshot(annotated, filename: str) -> None:
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+    snapshot_dir = os.path.join(project_root, "snapshots")
+    os.makedirs(snapshot_dir, exist_ok = True)
+    try:
+        rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+        Image.fromarray(rgb).save(os.path.join(snapshot_dir, filename))
+    except Exception as e:
+        print(f"Snapshot failed ({filename}): {e}")
