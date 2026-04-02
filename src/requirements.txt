@@ -9,3 +9,4 @@ gTTs
 pygame
 fastapi
 uvicorn
+anthropic

@@ -1,11 +1,15 @@
 from google import genai
+import anthropic
 from google.genai.types import GenerateContentConfig, HttpOptions
 from collections import Counter
 import os
+import base64
+import mimetypes
 
 def generate_ai_feedback(raw_feedbacks: list, currentExercise: str):
     # Client initialization with API version specification
     client = genai.Client(http_options=HttpOptions(api_version = "v1beta"))
+    claude_client = anthropic.Client()
 
     # Collected data
     feedback_counts = Counter(raw_feedbacks)
@@ -14,14 +18,11 @@ def generate_ai_feedback(raw_feedbacks: list, currentExercise: str):
     # Snapshot of the most significant form breakdown (e.g., an image showing knee collapse during a squat)
     snapshot_files = []
     for file in os.scandir("../snapshots"):
-        snapshot_files.append(file.path)   
+        snapshot_files.append(file.path)  
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            config=GenerateContentConfig(
-                system_instruction=[
-                    f'''
+    # System instructions for the AI model, tailored to the specific exercise and the type of feedback received. The instructions guide the AI to provide detailed, actionable feedback based on the form breakdowns detected during the session, while also referencing the visual data from the snapshots. The AI is prompted to focus on the most critical issue first and to provide a comprehensive analysis that includes safety considerations and weight recommendations for future sessions.
+
+    structured_instruction = f'''
                     ### ROLE
                     You are "Apex Biomechanics AI," an elite strength and conditioning coach specializing in {currentExercise} kinematics. Your goal is to provide precise, anatomical feedback based on session data and visual snapshots.
 
@@ -48,21 +49,70 @@ def generate_ai_feedback(raw_feedbacks: list, currentExercise: str):
                     - Language: English (Always answer in English).
                     - Text: The text should be detailed like in a report but kept under 300 words
                     - Data: NEVER mention the contents you received. 
-                    - Data: DO NOT mention the snapshot_files or the feedback counts in ANY WAY Instead, directly provide the feedback as if you are analyzing the session in real-time.ß
-                    - Focus: Only discuss {currentExercise} kinematics depending on the exercise.
-                    - If the {currentExercise} is a bench press and it is recorded from the side, focus on bar path, arching of the back. 
-                    - If the {currentExercise} is a squat and it is recorded from the front, focus on knee caving inwards and not knees tracking over the feet.
-                    - If the {currentExercise} is a squat and it is recorded from the side, focus on knee tracking over the toes. Also pay attention if the foot remains flat on the ground or if the heel lifts.
-                    - If the {currentExercise} is a bent-over barbell row and it is recorded from the side focus on back angle. If it is recorded from the front, focus on grip width and if the elbows flare out too much.
-                '''
-                ],
-                temperature=0.4,
-            ),
-            contents = snapshot_files + [summary_for_ai]
+                    - Data: DO NOT mention the snapshot_files or the feedback counts in ANY WAY Instead, directly provide the feedback as if you are analyzing the session in real-time.
+                    - Feedback: If the feedback counts indicate good form (e.g., very low counts of errors), the session summary should reflect that positively, and the critical correction should focus on reinforcing good habits rather than correcting issues.
+                    - Focus: Only discuss {currentExercise} kinematics.
+                    '''
+
+    # List of Gemini models to try in order
+    gemini_models = ["gemini-3-flash-preview", "gemini-2.5-flash"]
+    
+    for model in gemini_models:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                config=GenerateContentConfig(
+                    system_instruction=[
+                        structured_instruction
+                    ],
+                    temperature=0.4,
+                ),
+                contents = snapshot_files + [summary_for_ai]
+            )
+            return response.text
+        except Exception as e:
+            print(f"Error generating AI feedback with {model}: {e}")
+            # Continue to the next model
+            continue
+
+
+    try:
+        claude_images = []
+        for image_path in snapshot_files:
+            media_type, _ = mimetypes.guess_type(image_path)
+            if media_type not in {"image/jpeg", "image/png", "image/webp", "image/gif"}:
+                continue
+
+            with open(image_path, "rb") as image_file:
+                encoded_image = base64.b64encode(image_file.read()).decode("utf-8")
+
+            claude_images.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": encoded_image,
+                    },
+                }
+            )
+
+        claude_response = claude_client.messages.create(
+            model="claude-3-5-sonnet-latest",
+            max_tokens=700,
+            temperature=0.4,
+            system=structured_instruction,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": summary_for_ai}] + claude_images,
+                }
+            ],
         )
 
-        return response.text
+        text_blocks = [block.text for block in claude_response.content if hasattr(block, "text")]
+        return "\n".join(text_blocks).strip()
 
-    except Exception as e:
-        print(f"Error generating AI feedback: {e}")
+    except Exception as inner_e:
+        print(f"Error generating fallback feedback: {inner_e}")
         return "Sorry, I couldn't generate feedback for this session."

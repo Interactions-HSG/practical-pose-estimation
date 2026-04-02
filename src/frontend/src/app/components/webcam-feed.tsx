@@ -537,13 +537,14 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
             mediaRecorderRef.current.stop();
         }
 
+        setAIFeedback("");
         setShowFeedbackScreen(true);
         setShowExerciseVideo(false);
 
         // Ensure MediaRecorder finalizes and upload finishes before requesting AI feedback.
         await waitForUpload;
 
-        const videoPath = `/${exercise}_${currentSet}_feedback.mp4`;
+        const videoPath = `/${exercise}_${currentSetRef.current}_feedback.mp4`;
         let pollInterval: NodeJS.Timeout | null = null;
         const checkVideo = async () => {
             try {
@@ -557,6 +558,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
             }
         };
         pollInterval = setInterval(checkVideo, 3000);
+        
         const backendUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL;
         const res = await fetch(`${backendUrl}/generate_feedback`, {
             method: "POST",
@@ -581,6 +583,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
             }
             setCurrentSet(currentSet + 1);
             setCurrentReps(0);
+            setAIFeedback("");
             setShowFeedbackScreen(false);
             handleStart();
         }
