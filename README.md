@@ -109,7 +109,8 @@ ngrok http 3000
 ```
 
 
-## Pose Landmarker Model
+
+
 <?xml version="1.0" encoding="UTF-8"?>
 <svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="500" height="500" viewBox="0 0 1446 1712">
 <path d="M0 0 C477.18 0 954.36 0 1446 0 C1446 564.96 1446 1129.92 1446 1712 C968.82 1712 491.64 1712 0 1712 C0 1147.04 0 582.08 0 0 Z " fill="#FEFEFE" transform="translate(0,0)"/>
