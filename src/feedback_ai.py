@@ -50,7 +50,7 @@ def generate_ai_feedback(raw_feedbacks: list, currentExercise: str):
                     - Text: The text should be detailed like in a report but kept under 300 words
                     - Data: NEVER mention the contents you received. 
                     - Data: DO NOT mention the snapshot_files or the feedback counts in ANY WAY Instead, directly provide the feedback as if you are analyzing the session in real-time.
-                    - Feedback: If the feedback counts indicate good form (e.g., very low counts of errors), the session summary should reflect that positively, and the critical correction should focus on reinforcing good habits rather than correcting issues.
+                    - Feedback: If the feedback counts indicate good form (e.g., very low counts of errors), the session summary should reflect that positively and not try to find issues, and the critical correction should focus on reinforcing good habits rather than correcting issues.
                     - Focus: Only discuss {currentExercise} kinematics.
                     '''
 

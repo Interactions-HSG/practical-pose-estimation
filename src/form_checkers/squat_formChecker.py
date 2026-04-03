@@ -86,8 +86,6 @@ class SquatFormChecker:
              
         self.cam_pos = detect_cam_pos(required_landmarks)
         
-
-        #print(f"Camera Position Detected: {self.cam_pos}")
         if any(landmark[4] < 0.90 for landmark in required_landmarks):
             message = "Please adjust the camera until your whole body is visible."
 

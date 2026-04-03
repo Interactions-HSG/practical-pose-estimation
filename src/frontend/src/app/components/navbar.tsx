@@ -36,14 +36,6 @@ const Navbar: React.FunctionComponent = () => {
 
   return (
     <nav className="w-full pb-4 md:pb-4">
-      {/*
-        <Link
-          href="/"
-          className="text-lg md:text-3xl font-bold text-spotify-green"
-        >
-          Visual Spotter
-        </Link>
-      */}
       <ul className="flex w-full flex-col items-stretch gap-2  md:flex-row lg:items-center">
         {navItems.map((eachItem) => (
           <li key={eachItem.id} className="w-full lg:w-auto">
