@@ -1,7 +1,6 @@
 import numpy as np
 from ._utilityFunctions import calculate_angle, detect_cam_pos, play_audio_feedback, save_snapshot
 import cv2
-import pygame
 import time
 
 class BenchpressFormChecker:
@@ -29,7 +28,6 @@ class BenchpressFormChecker:
 
         #Variables for playing sounds
         self.language = 'en'
-        pygame.mixer.init()
         self.last_audio_end_time = 0
         self.last_filepath = None
         self.green_queue = None
@@ -64,19 +62,33 @@ class BenchpressFormChecker:
         self.left_elbow = landmarks[7]
         self.left_wrist = landmarks[9]
         self.left_hip = landmarks[11]
-
+        self.left_ear = landmarks[3]
+        
         self.right_shoulder = landmarks[6]
         self.right_elbow = landmarks[8]
         self.right_wrist = landmarks[10]
         self.right_hip = landmarks[12]
+        self.right_ear = landmarks[4]
 
         required_landmarks = [self.right_elbow, self.right_wrist, self.left_elbow, self.left_wrist]
 
-        cam_pos = detect_cam_pos(required_landmarks, standing=False)
+        cam_pos = detect_cam_pos([self.left_ear[2], self.right_ear[2]])
+
+
+        print(f"Camera Position Detected: {cam_pos}")
 
         # YOLO keypoints are [x, y, conf]. Require confident keypoints before feedback.
-        if any(landmark[2] < 0.75 for landmark in required_landmarks):
-            message = "Please adjust the camera until your whole body is visible."
+        message = ""
+        
+        if self.cam_pos == "front":
+            if any(landmark[2] < 0.60 for landmark in required_landmarks):
+                message = "Please adjust the camera until your whole body is visible."
+        elif self.cam_pos == "left":
+            if any(landmark[2] < 0.60 for landmark in required_landmarks[0:5]):
+                message = "Please adjust the camera until your whole body is visible"
+        elif self.cam_pos == "right":
+            if any(landmark[2] < 0.60 for landmark in required_landmarks[5:10]):
+                message = "Please adjust the camera until your whole body is visible"
 
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
@@ -119,10 +131,10 @@ class BenchpressFormChecker:
                     self.initial_detection_timer_done = True
                     self.initial_detection_timer_started_at = None
 
-                if cam_pos == "front":
+                if cam_pos == "front" and self.initial_detection_timer_done:
                     self._check_grip_width()
                     rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_range_of_motion(rom_achieved, init_pos)
-                elif cam_pos in ("left", "right"):
+                elif cam_pos in ("left", "right") and self.initial_detection_timer_done:
                     self._capture_side_snapshot_if_due(cam_pos)
             
         return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
@@ -207,8 +219,8 @@ class BenchpressFormChecker:
         dist_shoulders = np.linalg.norm(self.right_shoulder[:2] - self.left_shoulder[:2])
         grip_width = np.linalg.norm(self.right_wrist[:2] - self.left_wrist[:2]) 
 
-        grip_width_threshold_min = 1.75 * dist_shoulders
-        grip_width_threshold_max = 2.25 * dist_shoulders
+        grip_width_threshold_min = 1.5 * dist_shoulders
+        grip_width_threshold_max = 3 * dist_shoulders
 
         if grip_width < grip_width_threshold_min:
             color = self.red

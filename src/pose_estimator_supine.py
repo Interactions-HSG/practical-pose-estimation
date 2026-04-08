@@ -88,13 +88,13 @@ class PoseEstimatorSupine:
                         if start[2] > 0.5 and end[2] > 0.5:
                             p1 = (int(start[0]), int(start[1]))
                             p2 = (int(end[0]), int(end[1]))
-                            cv2.line(annotated_frame, p1, p2, (0, 255, 0), 4)
+                            cv2.line(annotated_frame, p1, p2, (0, 255, 0), 2)
                             
                 for kp in keypoints:
                     if kp[2] > 0.5: 
                         x, y = int(kp[0]), int(kp[1])
-                        cv2.circle(annotated_frame, (x, y), 8, (255, 255, 0), -1)
-                        cv2.circle(annotated_frame, (x, y), 8, (0, 0, 0), 2)
+                        cv2.circle(annotated_frame, (x, y), 4, (255, 255, 0), -1)
+                        cv2.circle(annotated_frame, (x, y), 4, (0, 0, 0), 2)
 
         return annotated_frame
 

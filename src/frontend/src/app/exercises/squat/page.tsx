@@ -49,7 +49,7 @@ function Instructions() {
                 </li>
                 <li className="flex items-start gap-3 rounded-xl border border-blue-800/60 bg-blue-900/40 px-4 py-3">
                     <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-300/90 text-xs font-bold text-blue-950">2</span>
-                    <span>Place the bar on your upper back, just below your neck.</span>
+                    <span>Place the bar on your upper back, just below your neck. You should not feel any discomfort.</span>
                 </li>
                 <li className="flex items-start gap-3 rounded-xl border border-blue-800/60 bg-blue-900/40 px-4 py-3">
                     <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-300/90 text-xs font-bold text-blue-950">3</span>
@@ -57,7 +57,7 @@ function Instructions() {
                 </li>
                 <li className="flex items-start gap-3 rounded-xl border border-blue-800/60 bg-blue-900/40 px-4 py-3">
                     <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-300/90 text-xs font-bold text-blue-950">4</span>
-                    <span>Keep your knees from tracking too far over your toes and collapsing inward.</span>
+                    <span>Keep your knees from collapsing inward.</span>
                 </li>
                 <li className="flex items-start gap-3 rounded-xl border border-blue-800/60 bg-blue-900/40 px-4 py-3">
                     <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-300/90 text-xs font-bold text-blue-950">5</span>
@@ -65,11 +65,11 @@ function Instructions() {
                 </li>
                 <li className="flex items-start gap-3 rounded-xl border border-blue-800/60 bg-blue-900/40 px-4 py-3">
                     <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-300/90 text-xs font-bold text-blue-950">6</span>
-                    <span>Lower until your thighs reach at least parallel to the ground, or slightly below if control allows.</span>
+                    <span>Lower until your thighs reach at least parallel to the ground, or slightly below if control allows. Your feet should stay planted on the ground.</span>
                 </li>
                 <li className="flex items-start gap-3 rounded-xl border border-blue-800/60 bg-blue-900/40 px-4 py-3">
                     <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-300/90 text-xs font-bold text-blue-950">7</span>
-                    <span>Drive through your heels to stand back up and fully extend your hips and knees.</span>
+                    <span>Drive through your heels to stand back up and fully extend your hips and knees. Make sure that the feet stay planted on the ground.</span>
                 </li>
                 <li className="flex items-start gap-3 rounded-xl border border-blue-800/60 bg-blue-900/40 px-4 py-3">
                     <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-300/90 text-xs font-bold text-blue-950">8</span>

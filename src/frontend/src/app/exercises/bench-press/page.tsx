@@ -56,6 +56,10 @@ function Instructions() {
                     <span>Grab the bar with a grip slightly wider than shoulder-width, and stack your wrists over your elbows to avoid bent wrists.</span>
                 </li>
                 <li className="flex items-start gap-3 rounded-xl border border-blue-800/60 bg-blue-900/40 px-4 py-3">
+                    <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-300/90 text-xs font-bold text-blue-950">2</span>
+                    <span>Make sure that your ellbows are in a 45 degree angle in reference to your torso.</span>
+                </li>
+                <li className="flex items-start gap-3 rounded-xl border border-blue-800/60 bg-blue-900/40 px-4 py-3">
                     <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-300/90 text-xs font-bold text-blue-950">4</span>
                     <span>Lower the bar in a slightly diagonal path to your lower chest, then press it back up over your shoulder line.</span>
                 </li>

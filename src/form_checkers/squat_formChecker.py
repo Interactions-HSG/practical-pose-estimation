@@ -54,40 +54,46 @@ class SquatFormChecker:
         self._last_depth_state = None
 
     def check_Squat_form(self, annotated, landmarks: np.array, rom_achieved, init_pos):
-        if landmarks is None or landmarks.shape[0] != 33:
+        if landmarks is None or landmarks.shape[0] != 17:
             print("Insufficient landmarks for squat form check.")
             return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
         self.annotated = annotated
          
         #Relevant landmarks for squat form check
-        self.left_shoulder = landmarks[11]
-        self.left_hip = landmarks[23] 
-        self.left_knee = landmarks[25]
-        self.left_ankle = landmarks[27] 
-        self.left_heel = landmarks[29]
-        self.left_toe = landmarks[31]
+        self.left_shoulder = landmarks[5]
+        self.left_hip = landmarks[11] 
+        self.left_knee = landmarks[13]
+        self.left_ankle = landmarks[15] 
+        self.left_ear = landmarks[3]
 
-        self.right_shoulder = landmarks[12]
-        self.right_hip = landmarks[24]
-        self.right_knee = landmarks[26]
-        self.right_ankle = landmarks[28]  
-        self.right_heel = landmarks[30]
-        self.right_toe = landmarks[32] 
+        self.right_shoulder = landmarks[6]
+        self.right_hip = landmarks[12]
+        self.right_knee = landmarks[14]
+        self.right_ankle = landmarks[16]  
+        self.right_ear = landmarks[4]
 
 
-        self.right_knee_angle = calculate_angle(self.right_hip[:3], self.right_knee[:3], self.right_ankle[:3])
-        self.left_knee_angle = calculate_angle(self.left_hip[:3], self.left_knee[:3], self.left_ankle[:3])
+        self.right_knee_angle = calculate_angle(self.right_hip[:2], self.right_knee[:2], self.right_ankle[:2])
+        self.left_knee_angle = calculate_angle(self.left_hip[:2], self.left_knee[:2], self.left_ankle[:2])
         self.init_pos_threshold = 140
 
 
-        required_landmarks = [self.right_shoulder, self.right_hip, self.right_knee, self.right_ankle, self.right_toe, self.right_heel,
-                              self.left_shoulder, self.left_hip, self.left_knee, self.left_ankle, self.left_toe, self.left_heel]
+        required_landmarks = [self.right_shoulder, self.right_hip, self.right_knee, self.right_ankle,
+                              self.left_shoulder, self.left_hip, self.left_knee, self.left_ankle]
              
-        self.cam_pos = detect_cam_pos(required_landmarks)
-        
-        if any(landmark[4] < 0.90 for landmark in required_landmarks):
-            message = "Please adjust the camera until your whole body is visible."
+        self.cam_pos = detect_cam_pos([self.left_ear[2], self.right_ear[2]])
+
+        message = ""
+        if self.cam_pos == "front":
+            if any(landmark[2] < 0.60 for landmark in required_landmarks):
+                message = "Please adjust the camera until your whole body is visible."
+        elif self.cam_pos == "left":
+            if any(landmark[2] < 0.60 for landmark in required_landmarks[0:5]):
+                message = "Please adjust the camera until your whole body is visible"
+        elif self.cam_pos == "right":
+            if any(landmark[2] < 0.60 for landmark in required_landmarks[5:10]):
+                message = "Please adjust the camera until your whole body is visible"
 
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
@@ -130,7 +136,8 @@ class SquatFormChecker:
                     self.initial_detection_timer_started_at = None
                 rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_depth(rom_achieved, init_pos)
                 if self.init_pos_threshold > self.right_knee_angle and self.init_pos_threshold > self.left_knee_angle:
-                    self._check_knee_tracking()
+                    if self.cam_pos == "front":
+                        self._check_knee_tracking()
                     if self.cam_pos == "left" or self.cam_pos == "right":
                         self._check_back_form()
 
@@ -202,45 +209,17 @@ class SquatFormChecker:
             return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
 
-    def _check_knee_tracking(self): 
-
-        # Values for knee tracking over toes calculation by projecting the knee position onto the foot direction vector
-        right_foot_length = np.linalg.norm(self.right_toe[:2] - self.right_heel[:2])
-        left_foot_length = np.linalg.norm(self.left_toe[:2] - self.left_heel[:2])
-
-        norm_right_foot_direction = (self.right_toe[:2] - self.right_heel[:2]) / right_foot_length
-        norm_left_foot_direction = (self.left_toe[:2] - self.left_heel[:2]) / left_foot_length
-
-        right_knee_projection = abs(np.dot(self.right_heel[:2] - self.right_knee[:2], norm_right_foot_direction))
-        left_knee_projection = abs(np.dot(self.left_heel[:2] - self.left_knee[:2], norm_left_foot_direction))
-
-        threshold = 0.11  # Allow a small threshold for noise and natural movement
-
-        right_foot_length = right_foot_length + threshold
-        left_foot_length = left_foot_length + threshold
-
-        right_over_toes = right_knee_projection > right_foot_length
-        left_over_toes = left_knee_projection > left_foot_length
+    def _check_knee_tracking(self):
 
         # Values for knee caving inwards calculation    
         threshold_knee_caving = 0.05     
-        right_dist_knee_heel = np.linalg.norm(self.right_knee[:2] - self.right_heel[:2]) 
-        left_dist_knee_heel = np.linalg.norm(self.left_knee[:2] - self.left_heel[:2]) 
+        right_dist_knee_ankle = np.linalg.norm(self.right_knee[:2] - self.right_ankle[:2]) 
+        left_dist_knee_ankle = np.linalg.norm(self.left_knee[:2] - self.left_ankle[:2]) 
         dist_knees = np.linalg.norm(self.right_knee[:2] - self.left_knee[:2]) + threshold_knee_caving
 
 
         # Independent checks for both issues
-        if (self.cam_pos == "right" and right_over_toes) or (self.cam_pos == "left" and left_over_toes):
-            message = "KNEE TRACKING: Knees are going over your toes."
-            if self._last_knee_state != "over_toes":
-                save_snapshot(self.annotated, "squat_kneeOverToes_snapshot.jpg")
-            self._last_knee_state = "over_toes"
-            self.raw_feedbacks.append(message)
-            color = self.red
-            audio_text = f"{message}. Please adjust your form"
-            file_ending = "_overToes.mp3"
-
-        elif self.cam_pos == "front" and (dist_knees < right_dist_knee_heel or dist_knees < left_dist_knee_heel):
+        if self.cam_pos == "front" and (dist_knees < right_dist_knee_ankle or dist_knees < left_dist_knee_ankle):
             message = "KNEE TRACKING: Knees are caving inwards."
             if self._last_knee_state != "caving":
                 save_snapshot(self.annotated, "squat_kneeIn_snapshot.jpg")
@@ -272,10 +251,10 @@ class SquatFormChecker:
 
     def _check_back_form(self):
 
-        hip_below_left = [self.left_hip[0], self.left_hip[1] - 1, self.left_hip[2]]
-        hip_below_right = [self.right_hip[0], self.right_hip[1] - 1, self.right_hip[2]]
-        torso_inclination_left = calculate_angle(self.left_shoulder[:3], self.left_hip[:3], hip_below_left)
-        torso_inclination_right = calculate_angle(self.right_shoulder[:3], self.right_hip[:3], hip_below_right)
+        hip_below_left = [self.left_hip[0], self.left_hip[1] - 1]
+        hip_below_right = [self.right_hip[0], self.right_hip[1] - 1]
+        torso_inclination_left = calculate_angle(self.left_shoulder[:2], self.left_hip[:2], hip_below_left)
+        torso_inclination_right = calculate_angle(self.right_shoulder[:2], self.right_hip[:2], hip_below_right)
 
         torso_inclination_threshold = 55
 

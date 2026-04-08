@@ -21,35 +21,20 @@ def calculate_angle(a, b, c):
     return np.degrees(angle)
 
 
-def detect_cam_pos(landmarks: list, standing = True):
+def detect_cam_pos(ear_visibilities: list):
     # Split landmarks in the middle to separate right and left sides
     # This works for both benchpress (6 landmarks) and bentover (10 landmarks)
-    mid = len(landmarks) // 2
-    right_landmarks = landmarks[0:mid]
-    left_landmarks = landmarks[mid:]
+    # As the camera is inverted for the left side, we check if the right ear visibility is high and left ear visibility is low to detect if the camera is on the right side, and vice versa for the left side. If both ears have low visibility, we assume the camera is in front.
+    
+    left_ear_visibility = ear_visibilities[0]
+    right_ear_visibility = ear_visibilities[1]
 
-    if standing:
-        right_visibility = [lm[3] for lm in right_landmarks]
-        left_visibility = [lm[3] for lm in left_landmarks]
-        if np.mean(right_visibility) > 0.95 and np.mean(left_visibility) > 0.95:
-            return "front"
-        elif np.mean(right_visibility) > 0.95:
-            return "right"
-        elif np.mean(left_visibility) > 0.95:
-            return "left"
-        else:
-            return "unknown"
-    elif standing == False:  
-        # Count the number of confidently detected keypoints on each side as YOLO does not have a visibility value
-        right_count = sum(1 for lm in right_landmarks if lm[2] > 0.7)  
-        left_count = sum(1 for lm in left_landmarks if lm[2] > 0.7)
-        
-        if right_count > left_count * 1.2:
-            return "right"
-        elif left_count > right_count * 1.2:
-            return "left"
-        else:
-            return "front"
+    if left_ear_visibility > 0.95 and right_ear_visibility < 0.1:
+        return "left"
+    elif right_ear_visibility > 0.95 and left_ear_visibility < 0.1:
+        return "right"
+    else:
+        return "front"
 
 def play_audio_feedback(
     text,

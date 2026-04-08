@@ -5,6 +5,7 @@ from collections import Counter
 import os
 import base64
 import mimetypes
+import requests
 
 def generate_ai_feedback(raw_feedbacks: list, currentExercise: str):
     # Client initialization with API version specification
@@ -52,6 +53,7 @@ def generate_ai_feedback(raw_feedbacks: list, currentExercise: str):
                     - Data: DO NOT mention the snapshot_files or the feedback counts in ANY WAY Instead, directly provide the feedback as if you are analyzing the session in real-time.
                     - Feedback: If the feedback counts indicate good form (e.g., very low counts of errors), the session summary should reflect that positively and not try to find issues, and the critical correction should focus on reinforcing good habits rather than correcting issues.
                     - Focus: Only discuss {currentExercise} kinematics.
+                    - If there is no indication of errors in {summary_for_ai} DO NOT mention it at all. Only provide feedback on the issues that are actually present in the feedback counts and the snapshot.
                     '''
 
     # List of Gemini models to try in order
@@ -115,4 +117,42 @@ def generate_ai_feedback(raw_feedbacks: list, currentExercise: str):
 
     except Exception as inner_e:
         print(f"Error generating fallback feedback: {inner_e}")
-        return "Sorry, I couldn't generate feedback for this session."
+          # Fallback to Ollama (local, free, unlimited)
+
+        try:
+            print("Attempting Ollama vision fallback...")
+
+            ollama_images = []
+            for image_path in snapshot_files:
+                media_type, _ = mimetypes.guess_type(image_path)
+                if media_type not in {"image/jpeg", "image/png", "image/webp"}:
+                    continue
+
+                with open(image_path, "rb") as image_file:
+                    ollama_images.append(base64.b64encode(image_file.read()).decode("utf-8"))
+
+            ollama_payload = {
+                "model": "llava",
+                "prompt": f"{structured_instruction}\n\nSession Data:\n{summary_for_ai}",
+                "stream": False,
+                "temperature": 0.4,
+            }
+
+            if ollama_images:
+                ollama_payload["images"] = ollama_images
+
+            ollama_response = requests.post(
+                "http://localhost:11434/api/generate",
+                json=ollama_payload,
+                timeout=180,
+            )
+            ollama_response.raise_for_status()
+            return ollama_response.json().get("response", "").strip()
+
+        except Exception as ollama_e:
+            print(f"Error generating Ollama feedback: {ollama_e}")
+            return (
+                "Sorry, I couldn't generate feedback for this session. "
+                "Please ensure Ollama vision is running "
+                "(e.g., `ollama pull llava && ollama run llava`)."
+            )

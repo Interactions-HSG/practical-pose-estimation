@@ -1,7 +1,6 @@
 import numpy as np
 from ._utilityFunctions import calculate_angle, detect_cam_pos, play_audio_feedback, save_snapshot
 import cv2
-import pygame
 import time
 
 class BentOverRowFormChecker:
@@ -33,7 +32,6 @@ class BentOverRowFormChecker:
   
         # Variables for playing sounds
         self.language = 'en'
-        pygame.mixer.init()
         self.last_audio_end_time = 0
         self.last_filepath = None
         self.green_queue = None
@@ -56,34 +54,35 @@ class BentOverRowFormChecker:
 
 
     def check_bentover_form(self, annotated, landmarks: np.array, rom_achieved, init_pos):
-        if landmarks is None or landmarks.shape[0] != 33:
+        if landmarks is None or landmarks.shape[0] != 17:
             print("Insufficient landmarks for bent-over row form check.")
-            return annotated, rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
+            return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
     
         self.annotated = annotated
 
         #Relevant landmarks for row check form
-        self.left_shoulder = landmarks[11]
-        self.left_elbow = landmarks[13]
-        self.left_wrist = landmarks[15]
-        self.left_hip = landmarks[23]
-        self.left_knee = landmarks[25]
+        self.left_shoulder = landmarks[5]
+        self.left_elbow = landmarks[7]
+        self.left_wrist = landmarks[9]
+        self.left_hip = landmarks[11]
+        self.left_knee = landmarks[13]
+        self.left_ear = landmarks[3]
 
-        self.right_shoulder = landmarks[12]
-        self.right_elbow = landmarks[14]
-        self.right_wrist = landmarks[16]
-        self.right_hip = landmarks[24]
-        self.right_knee = landmarks[26]    
+        self.right_shoulder = landmarks[6]
+        self.right_elbow = landmarks[8]
+        self.right_wrist = landmarks[10]
+        self.right_hip = landmarks[12]
+        self.right_knee = landmarks[14]
+        self.right_ear = landmarks[4]
 
         # Check if required landmarks have sufficient visibility
         required_landmarks = [self.right_shoulder, self.right_elbow, self.right_wrist, self.right_hip, self.right_knee, 
                               self.left_shoulder, self.left_elbow, self.left_wrist, self.left_hip, self.left_knee]
         
-        self.cam_pos = detect_cam_pos(required_landmarks)
+        self.cam_pos = detect_cam_pos([self.left_ear[2], self.right_ear[2]])
 
-        if any(landmark[4] < 0.90 for landmark in required_landmarks):
+        if any(landmark[2] < 0.60 for landmark in required_landmarks):
             message = "Please adjust the camera until your whole body is visible."
-            #cv2.putText(self.annotated, message, (10, 60), self.font, self.font_size, self.red, self.thickness, self.line)
 
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
@@ -125,29 +124,27 @@ class BentOverRowFormChecker:
                     self.initial_detection_timer_done = True
                     self.initial_detection_timer_started_at = None
 
-                self._check_back_form()
-
                 if self.correct_back_form and (self.cam_pos == "left" or self.cam_pos == "right"):
                     rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_range_of_motion(rom_achieved, init_pos)
                 elif self.correct_back_form and self.cam_pos == "front":
                     self._check_grip_width()
+                    rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_range_of_motion(rom_achieved, init_pos)
+               
 
         return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
     def _check_back_form(self):
 
-        feedback_position = (10, 100)
+        hip_below_left = [self.left_hip[0], self.left_hip[1] - 1]
+        hip_below_right = [self.right_hip[0], self.right_hip[1] - 1]
 
-        hip_below_left = [self.left_hip[0], self.left_hip[1] - 1, self.left_hip[2]]
-        hip_below_right = [self.right_hip[0], self.right_hip[1] - 1, self.right_hip[2]]
+        torso_inclination_left = calculate_angle(self.left_shoulder[:2], self.left_hip[:2], hip_below_left)
+        torso_inclination_right = calculate_angle(self.right_shoulder[:2], self.right_hip[:2], hip_below_right)
 
-        torso_inclination_left = calculate_angle(self.left_shoulder[:3], self.left_hip[:3], hip_below_left)
-        torso_inclination_right = calculate_angle(self.right_shoulder[:3], self.right_hip[:3], hip_below_right)
+        torso_lean_left = calculate_angle(self.left_shoulder[:2], self.left_hip[:2], self.left_knee[:2])
+        torso_lean_right = calculate_angle(self.right_shoulder[:2], self.right_hip[:2], self.right_knee[:2])
 
-        torso_lean_left = calculate_angle(self.left_shoulder[:3], self.left_hip[:3], self.left_knee[:3])
-        torso_lean_right = calculate_angle(self.right_shoulder[:3], self.right_hip[:3], self.right_knee[:3])
-
-        torso_lean_threshold = 110 
+        torso_lean_threshold = 120 
         torso_inclination_threshold = 80
 
         # Check if the torso is too horizontal or too upright and provide feedback accordingly with additional thresholds for bent-over rows
@@ -195,11 +192,11 @@ class BentOverRowFormChecker:
 
     def _check_range_of_motion(self, rom_achieved, init_pos):
 
-        left_elbow_angle = calculate_angle(self.left_shoulder[:3], self.left_elbow[:3], self.left_wrist[:3])
-        right_elbow_angle = calculate_angle(self.right_shoulder[:3], self.right_elbow[:3], self.right_wrist[:3])
+        left_elbow_angle = calculate_angle(self.left_shoulder[:2], self.left_elbow[:2], self.left_wrist[:2])
+        right_elbow_angle = calculate_angle(self.right_shoulder[:2], self.right_elbow[:2], self.right_wrist[:2])
 
         elbow_flexion_threshold = 140
-        range_of_motion_threshold = 100
+        range_of_motion_threshold = 115
 
         if self.cam_pos == "left":
             in_pull_phase = left_elbow_angle < elbow_flexion_threshold
@@ -219,8 +216,18 @@ class BentOverRowFormChecker:
             # Check if we are still within the ROM delay period to false trigger audio feedback and only provide feedback after the delay has passed
             if self.rom_start_time is not None and (time.time() - self.rom_start_time) < self.rom_delay_seconds:
                 return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks   
-
-            if self.cam_pos == "left" and left_elbow_angle < range_of_motion_threshold and init_pos == False:
+            
+            print(f"Left Elbow Angle: {left_elbow_angle:.2f}, Right Elbow Angle: {right_elbow_angle:.2f}")
+            if self.cam_pos == "front" and left_elbow_angle < range_of_motion_threshold or right_elbow_angle < range_of_motion_threshold and init_pos == False:
+                color = self.green
+                message = "RANGE OF MOTION: Good range of motion."
+                audio_text = f"{message}. Good job!"
+                rom_achieved = True
+                file_ending = ".mp3"
+                if self._last_rom_state != "good":
+                    save_snapshot(self.annotated, "bentOver_romGood_snapshot.jpg")
+                self._last_rom_state = "good"
+            elif self.cam_pos == "left" and left_elbow_angle < range_of_motion_threshold and init_pos == False:
                 color = self.green
                 message = "RANGE OF MOTION: Good range of motion."
                 audio_text = f"{message}. Good job!"
@@ -276,9 +283,9 @@ class BentOverRowFormChecker:
 
     def _check_grip_width(self):
 
-        left_dist_elbow_wrist = np.linalg.norm(self.left_elbow[:3] - self.left_wrist[:3])
-        right_dist_elbow_wrist = np.linalg.norm(self.right_elbow[:3] - self.right_wrist[:3])
-        dist_wrists = np.linalg.norm(self.left_wrist[:3] - self.right_wrist[:3])
+        left_dist_elbow_wrist = np.linalg.norm(self.left_elbow[:2] - self.left_wrist[:2])
+        right_dist_elbow_wrist = np.linalg.norm(self.right_elbow[:2] - self.right_wrist[:2])
+        dist_wrists = np.linalg.norm(self.left_wrist[:2] - self.right_wrist[:2])
 
         width_threshold = 2.4
         narrow_threshold = 1.5

@@ -133,9 +133,16 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                 currentSet === 2 ? "/cam_bench_side.svg" :
                     "/cam_bench_otherSide.svg";
         }
-        return currentSet === 1 ? "/cam_front.svg" :
-            currentSet === 2 ? "/cam_side.svg" :
-                "/cam_otherSide.svg";
+        else if (exercise === "bent") {
+            return currentSet === 1 ? "/cam_side.svg" :
+                currentSet === 2 ? "/cam_front.svg" :
+                    "/cam_otherSide.svg";
+        }
+        else {
+            return currentSet === 1 ? "/cam_front.svg" :
+                currentSet === 2 ? "/cam_side.svg" :
+                    "/cam_otherSide.svg";
+        }
     };
 
     useEffect(() => { currentSetRef.current = currentSet; }, [currentSet]);
@@ -558,7 +565,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
             }
         };
         pollInterval = setInterval(checkVideo, 3000);
-        
+
         const backendUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL;
         const res = await fetch(`${backendUrl}/generate_feedback`, {
             method: "POST",

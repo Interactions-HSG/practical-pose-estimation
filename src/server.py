@@ -143,10 +143,8 @@ class ExerciseSession:
         self.accumulated_feedbacks = []
         self.currentExercise = None
 
-        if exercise in ("squat", "bent"):
-            self.estimator = PoseEstimator(mode='image', open_camera=False)
-        else:
-            self.estimator = PoseEstimatorSupine(mode='image', open_camera=False)
+
+        self.estimator = PoseEstimatorSupine(mode='image', open_camera=False)
 
         if exercise == "squat":
             self.checker = SquatFormChecker(tts=True, play_local_audio=False, queue_audio_event=self.queue_audio_event)
@@ -180,51 +178,52 @@ class ExerciseSession:
         Runs the same steps as the while-loop in main.py on a single frame.
         Returns the annotated frame (skeleton + feedback text drawn on it).
         """
+        # 1. Run PoseEstimator on the externally provided frame.
+        annotated = self.estimator.process_external_frame(frame)
 
-        if self.exercise in ("squat", "bent"):
-            # 1. Run PoseEstimator on the externally provided frame.
-            annotated = self.estimator.process_external_frame(frame)
+        # 2. Run form checker with 33x5 landmarks.
+        people = self.estimator.get_landmarks_result()
+        points = None 
 
-            # 2. Run form checker with 33x5 landmarks.
-            points = self.estimator.get_landmarks_result()
-            if points is not None:
+        if people is not None and getattr(people, "size", 0) > 0 and people.shape[0] > 0:
+            best_idx = int(people[:, :, 2].mean(axis=1).argmax())
+            points = people[best_idx]
 
-                if self.exercise == "squat":
-                    self.rom_achieved, self.init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self.checker.check_Squat_form(
-                        annotated, points, self.rom_achieved, self.init_pos
-                    )
-                    self.currentExercise = "squat"
-                else:
-                    self.rom_achieved, self.init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self.checker.check_bentover_form(
-                        annotated, points, self.rom_achieved, self.init_pos
-                    )
-                    self.currentExercise = "bent"
-
-            for item in self.raw_feedbacks:
-              if isinstance(item, (str, dict)):
-                  self.accumulated_feedbacks.append(item)
-            self.raw_feedbacks.clear()
-
-        elif self.exercise == "bench":
-            # 1. Run supine estimator on one frontend-provided frame.
-            annotated = self.estimator.process_external_frame(frame)
-
-            # 2. Run bench checker with highest-confidence person.
-            people = self.estimator.get_landmarks_result()
-            if people is not None:
-                best_idx = int(people[:, :, 2].mean(axis=1).argmax())
-                points = people[best_idx]
-                self.rom_achieved, self.init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self.checker.check_benchpress_form(
+        if points is not None:
+            if self.exercise == "squat":
+                self.rom_achieved, self.init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self.checker.check_Squat_form(
                     annotated, points, self.rom_achieved, self.init_pos
                 )
+                self.currentExercise = "squat"
+
+            elif self.exercise == "bench":
+                self.rom_achieved, self.init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self.checker.check_benchpress_form(
+                annotated, points, self.rom_achieved, self.init_pos
+            )
                 self.currentExercise = "bench"
+            else:
+                self.rom_achieved, self.init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self.checker.check_bentover_form(
+                    annotated, points, self.rom_achieved, self.init_pos
+                )
+                self.currentExercise = "bent"
+
+
+        for item in self.raw_feedbacks:
+            if isinstance(item, (str, dict)):
+                self.accumulated_feedbacks.append(item)
+        self.raw_feedbacks.clear()
+    
 
         return annotated
+    
 
-    def close(self):
-        if hasattr(self, "estimator") and hasattr(self.estimator, "landmarker"):
-            self.estimator.landmarker.close()
-
+    def close(self) -> None:
+        """Release per-session resources safely."""
+        try:
+            if hasattr(self.estimator, "close"):
+                self.estimator.close()
+        except Exception:
+            pass
 
 ACTIVE_SESSIONS: dict[str, ExerciseSession] = {}
 
@@ -310,7 +309,8 @@ async def livestream_endpoint(websocket: WebSocket, exercise: str = "squat"):
                             session.rep_counter = 0
                             session.last_rep_counter = 0
                 except Exception:
+                    print (f"Malformed control message: {message['text']}")
                     pass  # ignore malformed control messages
 
     except Exception as e:
-        pass  # browser closed the tab or stopped the stream
+        print(f"WebSocket error: {e}")
