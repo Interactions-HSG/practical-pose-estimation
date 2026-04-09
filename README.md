@@ -4,53 +4,55 @@ This application is designed to provide real-time feedback on exercise form usin
 
 ## Repository Structure
 ```bash
-.
-├── feedback_ai.py
-├── form_checkers
-│   ├── __init__.py
-│   ├── _utilityFunctions.py
-│   ├── benchpress_formChecker.py
-│   ├── bentOver_formChecker.py
-│   └── squat_formChecker.py
-├── frontend
-│   ├── eslint.config.mjs
-│   ├── next.config.ts
-│   ├── package-lock.json
-│   ├── package.json
-│   ├── postcss.config.mjs
-│   ├── public
-│   ├── src
-│   │   └── app
-│   │       ├── components
-│   │       │   ├── countdown.tsx
-│   │       │   ├── exercise-video.tsx
-│   │       │   ├── formChecker_button.tsx
-│   │       │   ├── navbar.tsx
-│   │       │   └── webcam-feed.tsx
-│   │       ├── exercises
-│   │       │   ├── bench-press
-│   │       │   │   ├── form_checker
-│   │       │   │   │   └── page.tsx
-│   │       │   │   └── page.tsx
-│   │       │   ├── bent-over-barbell-row
-│   │       │   │   ├── form_checker
-│   │       │   │   │   └── page.tsx
-│   │       │   │   └── page.tsx
-│   │       │   └── squat
-│   │       │       ├── form_checker
-│   │       │       │   └── page.tsx
-│   │       │       └── page.tsx
-│   │       ├── globals.css
-│   │       ├── layout.tsx
-│   │       └── page.tsx
-│   └── tsconfig.json
-├── init_functions.py
-├── pose_estimator.py
-├── pose_estimator_supine.py
-├── requirements.txt
+├── README.md
+├── .gitignore
+├── src
+│   ├── feedback_ai.py
+│   ├── form_checkers
+│   │   ├── __init__.py
+│   │   ├── _utilityFunctions.py
+│   │   ├── benchpress_formChecker.py
+│   │   ├── bentOver_FormChecker.py
+│   │   └── squat_formChecker.py
+│   ├── frontend
+│   │   ├── eslint.config.mjs
+│   │   ├── next.config.ts
+│   │   ├── package-lock.json
+│   │   ├── package.json
+│   │   ├── postcss.config.mjs
+│   │   ├── public
+│   │   ├── src
+│   │   │   └── app
+│   │   │       ├── components
+│   │   │       │   ├── countdown.tsx
+│   │   │       │   ├── exercise-video.tsx
+│   │   │       │   ├── formChecker_button.tsx
+│   │   │       │   ├── navbar.tsx
+│   │   │       │   └── webcam-feed.tsx
+│   │   │       ├── exercises
+│   │   │       │   ├── bench-press
+│   │   │       │   │   ├── form_checker
+│   │   │       │   │   │   └── page.tsx
+│   │   │       │   │   └── page.tsx
+│   │   │       │   ├── bent-over-barbell-row
+│   │   │       │   │   ├── form_checker
+│   │   │       │   │   │   └── page.tsx
+│   │   │       │   │   └── page.tsx
+│   │   │       │   └── squat
+│   │   │       │       ├── form_checker
+│   │   │       │       │   └── page.tsx
+│   │   │       │       └── page.tsx
+│   │   │       ├── globals.css
+│   │   │       ├── layout.tsx
+│   │   │       └── page.tsx
+│   │   └── tsconfig.json
+│   ├── init_functions.py
+│   ├── pose_estimator.py
+│   ├── pose_estimator_supine.py
+│   ├── requirements.txt
+│   └── server.py
 ├── trained_models
 │   └── yolo26s-pose.pt
-└── server.py
 ```
 
 ## How to use it
