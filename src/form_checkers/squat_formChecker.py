@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 from ._utilityFunctions import calculate_angle, detect_cam_pos, play_audio_feedback, save_snapshot
-import pygame
 import time 
 
 class SquatFormChecker:
@@ -32,7 +31,6 @@ class SquatFormChecker:
 
         # Variables for playing sounds
         self.language = 'en'
-        pygame.mixer.init()
         self.last_audio_end_time = 0
         self.last_filepath = None
         self.green_queue = None
@@ -61,17 +59,17 @@ class SquatFormChecker:
         self.annotated = annotated
          
         #Relevant landmarks for squat form check
-        self.left_shoulder = landmarks[5]
-        self.left_hip = landmarks[11] 
-        self.left_knee = landmarks[13]
-        self.left_ankle = landmarks[15] 
-        self.left_ear = landmarks[3]
-
-        self.right_shoulder = landmarks[6]
+        self.right_shoulder = landmarks[5]
         self.right_hip = landmarks[12]
         self.right_knee = landmarks[14]
-        self.right_ankle = landmarks[16]  
+        self.right_ankle = landmarks[16]
         self.right_ear = landmarks[4]
+
+        self.left_shoulder = landmarks[6]
+        self.left_hip = landmarks[11]
+        self.left_knee = landmarks[13]
+        self.left_ankle = landmarks[15]
+        self.left_ear = landmarks[3]
 
 
         self.right_knee_angle = calculate_angle(self.right_hip[:2], self.right_knee[:2], self.right_ankle[:2])
@@ -84,30 +82,17 @@ class SquatFormChecker:
              
         self.cam_pos = detect_cam_pos([self.left_ear[2], self.right_ear[2]])
 
-        message = ""
-        if self.cam_pos == "front":
-            if any(landmark[2] < 0.60 for landmark in required_landmarks):
-                message = "Please adjust the camera until your whole body is visible."
-        elif self.cam_pos == "left":
-            if any(landmark[2] < 0.60 for landmark in required_landmarks[0:5]):
-                message = "Please adjust the camera until your whole body is visible"
+        if self.cam_pos == "left":
+            relevant = required_landmarks[4:8]
         elif self.cam_pos == "right":
-            if any(landmark[2] < 0.60 for landmark in required_landmarks[5:10]):
-                message = "Please adjust the camera until your whole body is visible"
-
-            if self.tts:
-                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
-                                                                                                    text=message,
-                                                                                                    filepath='feedback/camera_feedback.mp3',
-                                                                                                    last_audio_end_time=self.last_audio_end_time,
-                                                                                                    color=self.red,
-                                                                                                    last_filepath=self.last_filepath,
-                                                                                                    green_queue=self.green_queue,
-                                                                                                    detected=self.detected,
-                                                                                                    play_local_audio=self.play_local_audio,
-                                                                                                    queue_audio_event=self.queue_audio_event
-                                                                                                )
+            relevant = required_landmarks[0:4]
         else:
+            relevant = required_landmarks
+
+        sufficient_visibility = all(lm[2] >= 0.60 for lm in relevant)
+
+           
+        if sufficient_visibility and not self.detected:
             message = "You have been detected!"
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
@@ -122,7 +107,7 @@ class SquatFormChecker:
                                                                                                     queue_audio_event=self.queue_audio_event
                                                                                                 )
 
-            if self.detected:
+        if sufficient_visibility and self.detected:
                 if not self.initial_detection_timer_done:
                     if self.initial_detection_timer_started_at is None:
                         self.initial_detection_timer_started_at = time.monotonic()
@@ -140,7 +125,19 @@ class SquatFormChecker:
                         self._check_knee_tracking()
                     if self.cam_pos == "left" or self.cam_pos == "right":
                         self._check_back_form()
-
+        else:
+            if self.tts:
+                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
+                                                                                                    text="Please adjust the camera until your whole body is visible.",
+                                                                                                    filepath='feedback/camera_feedback.mp3',
+                                                                                                    last_audio_end_time=self.last_audio_end_time,
+                                                                                                    color=self.red,
+                                                                                                    last_filepath=self.last_filepath,
+                                                                                                    green_queue=self.green_queue,
+                                                                                                    detected=self.detected,
+                                                                                                    play_local_audio=self.play_local_audio,
+                                                                                                    queue_audio_event=self.queue_audio_event
+                                                                                                )
         return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
     def _check_depth(self, rom_achieved, init_pos):

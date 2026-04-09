@@ -61,19 +61,19 @@ class BentOverRowFormChecker:
         self.annotated = annotated
 
         #Relevant landmarks for row check form
-        self.left_shoulder = landmarks[5]
-        self.left_elbow = landmarks[7]
-        self.left_wrist = landmarks[9]
-        self.left_hip = landmarks[11]
-        self.left_knee = landmarks[13]
-        self.left_ear = landmarks[3]
+        self.right_shoulder = landmarks[5]
+        self.right_elbow = landmarks[7]
+        self.right_wrist = landmarks[9]
+        self.right_hip = landmarks[11]
+        self.right_knee = landmarks[13]
+        self.right_ear = landmarks[3]
 
-        self.right_shoulder = landmarks[6]
-        self.right_elbow = landmarks[8]
-        self.right_wrist = landmarks[10]
-        self.right_hip = landmarks[12]
-        self.right_knee = landmarks[14]
-        self.right_ear = landmarks[4]
+        self.left_shoulder = landmarks[6]
+        self.left_elbow = landmarks[8]
+        self.left_wrist = landmarks[10]
+        self.left_hip = landmarks[12]
+        self.left_knee = landmarks[14]
+        self.left_ear = landmarks[4]
 
         # Check if required landmarks have sufficient visibility
         required_landmarks = [self.right_shoulder, self.right_elbow, self.right_wrist, self.right_hip, self.right_knee, 
@@ -81,22 +81,16 @@ class BentOverRowFormChecker:
         
         self.cam_pos = detect_cam_pos([self.left_ear[2], self.right_ear[2]])
 
-        if any(landmark[2] < 0.60 for landmark in required_landmarks):
-            message = "Please adjust the camera until your whole body is visible."
-
-            if self.tts:
-                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
-                                                                                                    text = message,
-                                                                                                    filepath='feedback/camera_feedback.mp3',
-                                                                                                    last_audio_end_time=self.last_audio_end_time,
-                                                                                                    color=self.red,
-                                                                                                    last_filepath=self.last_filepath,
-                                                                                                    green_queue=self.green_queue,
-                                                                                                    detected=self.detected,
-                                                                                                    play_local_audio=self.play_local_audio,
-                                                                                                    queue_audio_event=self.queue_audio_event
-                                                                                                )
+        if self.cam_pos == "left":
+            relevant = required_landmarks[5:10]
+        elif self.cam_pos == "right":
+            relevant = required_landmarks[0:5]
         else:
+            relevant = required_landmarks
+
+        sufficient_visibility = all(lm[2] >= 0.60 for lm in relevant)
+
+        if sufficient_visibility and not self.detected:
             message = "You have been detected!"
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
@@ -111,25 +105,38 @@ class BentOverRowFormChecker:
                                                                                                     queue_audio_event=self.queue_audio_event
                                                                                                 )
 
-            if self.detected:
-                if not self.initial_detection_timer_done:
-                    if self.initial_detection_timer_started_at is None:
-                        self.initial_detection_timer_started_at = time.monotonic()
-                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
+        elif sufficient_visibility and self.detected:
+            if not self.initial_detection_timer_done:
+                if self.initial_detection_timer_started_at is None:
+                    self.initial_detection_timer_started_at = time.monotonic()
+                    return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
-                    elapsed = time.monotonic() - self.initial_detection_timer_started_at
-                    if elapsed < self.initial_detection_timer_seconds:
-                        return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
+                elapsed = time.monotonic() - self.initial_detection_timer_started_at
+                if elapsed < self.initial_detection_timer_seconds:
+                    return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
-                    self.initial_detection_timer_done = True
-                    self.initial_detection_timer_started_at = None
+                self.initial_detection_timer_done = True
+                self.initial_detection_timer_started_at = None
 
-                if self.correct_back_form and (self.cam_pos == "left" or self.cam_pos == "right"):
-                    rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_range_of_motion(rom_achieved, init_pos)
-                elif self.correct_back_form and self.cam_pos == "front":
-                    self._check_grip_width()
-                    rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_range_of_motion(rom_achieved, init_pos)
-               
+            if  (self.cam_pos == "left" or self.cam_pos == "right"):
+                self._check_back_form()
+                rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_range_of_motion(rom_achieved, init_pos)
+            elif self.cam_pos == "front":
+                self._check_grip_width()
+                rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_range_of_motion(rom_achieved, init_pos)
+        else:
+            if self.tts:
+                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
+                                                                                                    text = "Please adjust the camera until your whole body is visible.",
+                                                                                                    filepath='feedback/camera_feedback.mp3',
+                                                                                                    last_audio_end_time=self.last_audio_end_time,
+                                                                                                    color=self.red,
+                                                                                                    last_filepath=self.last_filepath,
+                                                                                                    green_queue=self.green_queue,
+                                                                                                    detected=self.detected,
+                                                                                                    play_local_audio=self.play_local_audio,
+                                                                                                    queue_audio_event=self.queue_audio_event
+                                                                                                )
 
         return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
@@ -217,7 +224,6 @@ class BentOverRowFormChecker:
             if self.rom_start_time is not None and (time.time() - self.rom_start_time) < self.rom_delay_seconds:
                 return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks   
             
-            print(f"Left Elbow Angle: {left_elbow_angle:.2f}, Right Elbow Angle: {right_elbow_angle:.2f}")
             if self.cam_pos == "front" and left_elbow_angle < range_of_motion_threshold or right_elbow_angle < range_of_motion_threshold and init_pos == False:
                 color = self.green
                 message = "RANGE OF MOTION: Good range of motion."
@@ -290,7 +296,7 @@ class BentOverRowFormChecker:
         width_threshold = 2.4
         narrow_threshold = 1.5
 
-        if dist_wrists > width_threshold * left_dist_elbow_wrist or dist_wrists > width_threshold * right_dist_elbow_wrist:
+        if (dist_wrists > width_threshold * left_dist_elbow_wrist or dist_wrists > width_threshold * right_dist_elbow_wrist) and self._last_grip_state != "good":
             color = self.red
             message = "GRIP WIDTH: Try to hold the barbell narrower"
             audio_text = f"{message}. Please adjust your form"
@@ -299,7 +305,7 @@ class BentOverRowFormChecker:
                 save_snapshot(self.annotated, "bentOver_gripWide_snapshot.jpg")
             self._last_grip_state = "wide"
 
-        elif dist_wrists < narrow_threshold * left_dist_elbow_wrist and dist_wrists < narrow_threshold * right_dist_elbow_wrist:
+        elif dist_wrists < narrow_threshold * left_dist_elbow_wrist and dist_wrists < narrow_threshold * right_dist_elbow_wrist and self._last_grip_state != "good":
             color = self.red
             message = "GRIP WIDTH: Try to hold the barbell wider"
             audio_text = f"{message}. Please adjust your form"

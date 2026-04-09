@@ -58,56 +58,41 @@ class BenchpressFormChecker:
         self.annotated = annotated
 
         #Relevant landmarks for benchpress form check
-        self.left_shoulder = landmarks[5]
-        self.left_elbow = landmarks[7]
-        self.left_wrist = landmarks[9]
-        self.left_hip = landmarks[11]
-        self.left_ear = landmarks[3]
+        self.right_shoulder = landmarks[5]
+        self.right_elbow = landmarks[7]
+        self.right_wrist = landmarks[9]
+        self.right_hip = landmarks[11]
+        self.right_ear = landmarks[3]
         
-        self.right_shoulder = landmarks[6]
-        self.right_elbow = landmarks[8]
-        self.right_wrist = landmarks[10]
-        self.right_hip = landmarks[12]
-        self.right_ear = landmarks[4]
+        self.left_shoulder = landmarks[6]
+        self.left_elbow = landmarks[8]
+        self.left_wrist = landmarks[10]
+        self.left_hip = landmarks[12]
+        self.left_ear = landmarks[4]
 
         required_landmarks = [self.right_elbow, self.right_wrist, self.left_elbow, self.left_wrist]
 
-        cam_pos = detect_cam_pos([self.left_ear[2], self.right_ear[2]])
+        self.cam_pos = detect_cam_pos([self.left_ear[2], self.right_ear[2]])
 
-
-        print(f"Camera Position Detected: {cam_pos}")
 
         # YOLO keypoints are [x, y, conf]. Require confident keypoints before feedback.
         message = ""
         
-        if self.cam_pos == "front":
-            if any(landmark[2] < 0.60 for landmark in required_landmarks):
-                message = "Please adjust the camera until your whole body is visible."
-        elif self.cam_pos == "left":
-            if any(landmark[2] < 0.60 for landmark in required_landmarks[0:5]):
-                message = "Please adjust the camera until your whole body is visible"
+        if self.cam_pos == "left":
+            relevant = required_landmarks[5:10]
         elif self.cam_pos == "right":
-            if any(landmark[2] < 0.60 for landmark in required_landmarks[5:10]):
-                message = "Please adjust the camera until your whole body is visible"
-
-            if self.tts:
-                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
-                                                                                                    text=message,
-                                                                                                    filepath="feedback/camera_feedback.mp3", 
-                                                                                                    last_audio_end_time=self.last_audio_end_time,
-                                                                                                    color=self.red, 
-                                                                                                    last_filepath=self.last_filepath,
-                                                                                                    green_queue=self.green_queue, 
-                                                                                                    detected=self.detected,
-                                                                                                    play_local_audio=self.play_local_audio, 
-                                                                                                    queue_audio_event=self.queue_audio_event)
-            return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
-
+            relevant = required_landmarks[0:5]
         else:
+            relevant = required_landmarks
+
+        sufficient_visibility = all(lm[2] >= 0.60 for lm in relevant)
+         
+
+        if sufficient_visibility and not self.detected:
             message = "You have been detected!"
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
-                                                                                                    text=message,
+                                                                                                    text="Please adjust the camera until your whole body is visible.",
                                                                                                     filepath="feedback/camera_feedback.mp3",
                                                                                                     last_audio_end_time=self.last_audio_end_time,
                                                                                                     color=self.green,
@@ -117,8 +102,8 @@ class BenchpressFormChecker:
                                                                                                     play_local_audio=self.play_local_audio,
                                                                                                     queue_audio_event=self.queue_audio_event
                                                                                                 )
-            # Show both grip width and ROM feedback for benchpress YOLO setup.
-            if self.detected:
+        # Show both grip width and ROM feedback for benchpress YOLO setup.
+        elif sufficient_visibility and self.detected:
                 if not self.initial_detection_timer_done:
                     if self.initial_detection_timer_started_at is None:
                         self.initial_detection_timer_started_at = time.monotonic()
@@ -131,12 +116,24 @@ class BenchpressFormChecker:
                     self.initial_detection_timer_done = True
                     self.initial_detection_timer_started_at = None
 
-                if cam_pos == "front" and self.initial_detection_timer_done:
+                if self.cam_pos == "front" and self.initial_detection_timer_done:
                     self._check_grip_width()
                     rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_range_of_motion(rom_achieved, init_pos)
-                elif cam_pos in ("left", "right") and self.initial_detection_timer_done:
-                    self._capture_side_snapshot_if_due(cam_pos)
-            
+                elif self.cam_pos in ("left", "right") and self.initial_detection_timer_done:
+                    self._capture_side_snapshot_if_due(self.cam_pos)
+        else:
+            if self.tts:
+                self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
+                                                                                                    text=message,
+                                                                                                    filepath="feedback/camera_feedback.mp3", 
+                                                                                                    last_audio_end_time=self.last_audio_end_time,
+                                                                                                    color=self.red, 
+                                                                                                    last_filepath=self.last_filepath,
+                                                                                                    green_queue=self.green_queue, 
+                                                                                                    detected=self.detected,
+                                                                                                    play_local_audio=self.play_local_audio, 
+                                                                                                    queue_audio_event=self.queue_audio_event)
+                
         return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
     def _capture_side_snapshot_if_due(self, cam_pos: str):

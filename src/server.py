@@ -6,6 +6,7 @@ from feedback_ai import generate_ai_feedback
 from contextlib import asynccontextmanager
 from init_functions import download_packets, create_required_directories
 from uuid import uuid4
+from datetime import datetime
 
 # Make sure imports from src/ work when running from the src/ directory
 sys.path.insert(0, os.path.dirname(__file__))
@@ -21,12 +22,13 @@ from pose_estimator_supine import PoseEstimatorSupine
 from form_checkers import SquatFormChecker, BenchpressFormChecker, BentOverRowFormChecker
 
 FEEDBACK_DIR = create_required_directories('src/feedback')
+FORM_COUNTS_DIR = create_required_directories('form_counts')
 
 def initialize_app_resources() -> None:
     # Prepare required directories and model files once at API startup.
     trained_models_dir = create_required_directories('trained_models')
     create_required_directories('src/feedback')
-
+    create_required_directories('form_counts')
     pose_model_path = os.path.join(trained_models_dir, 'pose_landmarker_full.task')
     download_packets(pose_model_path)
 
@@ -73,7 +75,20 @@ async def delete_snapshot():
             return {"status": "success", "detail": "Deleted all snapshots."}
         except Exception as e:
             return JSONResponse({"status": "error", "detail": str(e)}, status_code=500)
-
+        
+@app.post("/delete_feedback_counts")
+async def delete_feedback_counts():
+    form_counts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "form_counts")
+    if os.path.exists(form_counts_dir):
+        try:
+            for filename in os.listdir(form_counts_dir):
+                file_path = os.path.join(form_counts_dir, filename)
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+            return {"status": "success", "detail": "Deleted all feedback counts."}
+        except Exception as e:
+            return JSONResponse({"status": "error", "detail": str(e)}, status_code=500)
+        
 # HTTP Upload Endpoint 
 @app.post("/upload")
 async def upload_video(
@@ -101,12 +116,16 @@ async def generate_feedback(request: Request):
     data = await request.json()
     session_id = data.get("sessionId")
     currentExercise = data.get("exercise", "unknown")
+    currentSet = data.get("set", "unknown")
     session = ACTIVE_SESSIONS.get(session_id)
     if not session:
         return JSONResponse({"error": "Session not found"}, status_code=404)
 
     feedbacks = session.accumulated_feedbacks.copy()
-    session.accumulated_feedbacks.clear()
+    with open(os.path.join(FORM_COUNTS_DIR, f"feedback_counts_{currentExercise}_{currentSet}_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.txt"), "w") as f:
+        for feedback in feedbacks:
+            f.write(f"{feedback}\n")
+    session.accumulated_feedbacks = []
 
     feedback = generate_ai_feedback(feedbacks, currentExercise)
     session.close() 

@@ -3,7 +3,6 @@ import numpy as np
 import time
 import os
 from gtts import gTTS
-import pygame
 import cv2
 from PIL import Image
 
@@ -73,10 +72,7 @@ def play_audio_feedback(
         was_last_green = isinstance(last_filepath, str) and last_filepath.endswith('_green.mp3')
         if current_time >= last_audio_end_time or was_last_green:
             if play_local_audio:
-                pygame.mixer.music.stop()
-                green_queue.clear()
-                pygame.mixer.music.load(filepath)
-                pygame.mixer.music.play()
+                pass
             else:
                 if queue_audio_event:
                     queue_audio_event(filepath, text, color)
@@ -97,7 +93,7 @@ def play_audio_feedback(
             green_queue.append((filepath, text))
 
     #If currently no audio is playing and there are green feedback queued, play the next one in the queue 
-    check_audio_player_free = (not pygame.mixer.music.get_busy() and current_time >= last_audio_end_time) if play_local_audio else (current_time >= last_audio_end_time)
+    check_audio_player_free =  current_time >= last_audio_end_time if play_local_audio else (current_time >= last_audio_end_time)
     
     if check_audio_player_free:
             if green_queue:
@@ -105,8 +101,7 @@ def play_audio_feedback(
                 ensure_audio_file_exists(next_filepath, next_text)
             
                 if play_local_audio:
-                    pygame.mixer.music.load(next_filepath)
-                    pygame.mixer.music.play()
+                    pass
                 else:
                     if queue_audio_event:
                         queue_audio_event(next_filepath, next_text, color)

@@ -507,6 +507,10 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                     method: "POST",
                     headers: { "Content-Type": "application/json" }
                 });
+                await fetch(`${backendUrl}/delete_feedback_counts`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                });
 
             } catch (e) {
                 console.error(`Error occurred while deleting video: ${videoPath}`, e);
@@ -570,7 +574,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
         const res = await fetch(`${backendUrl}/generate_feedback`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sessionId, exercise }),
+            body: JSON.stringify({ sessionId, exercise, set: currentSetRef.current }),
         });
         const data = await res.json();
         setAIFeedback(data.feedback);
