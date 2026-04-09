@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from init_functions import download_packets, create_required_directories
 from uuid import uuid4
 from datetime import datetime
+from collections import Counter
 
 # Make sure imports from src/ work when running from the src/ directory
 sys.path.insert(0, os.path.dirname(__file__))
@@ -17,7 +18,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from pose_estimator import PoseEstimator
 from pose_estimator_supine import PoseEstimatorSupine
 from form_checkers import SquatFormChecker, BenchpressFormChecker, BentOverRowFormChecker
 
@@ -123,11 +123,11 @@ async def generate_feedback(request: Request):
 
     feedbacks = session.accumulated_feedbacks.copy()
     with open(os.path.join(FORM_COUNTS_DIR, f"feedback_counts_{currentExercise}_{currentSet}_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.txt"), "w") as f:
-        for feedback in feedbacks:
-            f.write(f"{feedback}\n")
-    session.accumulated_feedbacks = []
-
+        feedback_counts = Counter(feedbacks)
+        for feedback, count in feedback_counts.items():
+            f.write(f"{feedback}: {count}\n")
     feedback = generate_ai_feedback(feedbacks, currentExercise)
+    session.accumulated_feedbacks = []
     session.close() 
     ACTIVE_SESSIONS.pop(session_id, None)  
     return {"feedback": feedback}
