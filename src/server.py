@@ -106,6 +106,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000",
                    "https://renato-unpardoning-palatably.ngrok-free.dev"],
+    allow_origin_regex=r"^https://([a-zA-Z0-9-]+\.)*(trycloudflare\.com|ngrok-free\.app|ngrok-free\.dev)$",
     allow_methods=["*"],
     allow_headers=["*"],
 )

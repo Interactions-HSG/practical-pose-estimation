@@ -27,7 +27,7 @@ class SquatFormChecker:
 
         # ROM delay
         self.rom_start_time = None
-        self.rom_delay_seconds = 1.8
+        self.rom_delay_seconds = 0.5
 
         # Variables for playing sounds
         self.language = 'en'
@@ -120,9 +120,9 @@ class SquatFormChecker:
                     self.initial_detection_timer_done = True
                     self.initial_detection_timer_started_at = None
                 rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_depth(rom_achieved, init_pos)
+                if self.cam_pos == "front":
+                    self._check_knee_tracking()
                 if self.init_pos_threshold > self.right_knee_angle and self.init_pos_threshold > self.left_knee_angle:
-                    if self.cam_pos == "front":
-                        self._check_knee_tracking()
                     if self.cam_pos == "left" or self.cam_pos == "right":
                         self._check_back_form()
         else:
@@ -142,20 +142,25 @@ class SquatFormChecker:
 
     def _check_depth(self, rom_achieved, init_pos):
         # Check if the squat depth is adequate and do not check if depth already achieved or if the person is upright
-        depth_achieved_threshold = 110
+
+        if self.cam_pos == "front":
+            depth_achieved_threshold = 135
+        else:
+             depth_achieved_threshold = 120
 
         if self.init_pos_threshold > self.right_knee_angle and self.init_pos_threshold > self.left_knee_angle:
             # Start of Movement (Important for ROM check and to avoid false triggers)
 
             if init_pos:
                 init_pos = False
-                self.rom_start_time = time.time()
+                self.rom_start_time = time.monotonic()
                 return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
             # Check if we are still within the ROM delay period to false trigger audio feedback and only provide feedback after the delay has passed
-            if self.rom_start_time is not None and (time.time() - self.rom_start_time) < self.rom_delay_seconds:
+            if self.rom_start_time is not None and (time.monotonic() - self.rom_start_time) < self.rom_delay_seconds:
                 return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
-
+            
+            print("Knee Angle", self.right_knee_angle, self.left_knee_angle)
             if self.right_knee_angle <= depth_achieved_threshold and self.left_knee_angle <= depth_achieved_threshold:
                 self.depth_achieved = True
                 color = self.green
@@ -207,16 +212,18 @@ class SquatFormChecker:
 
 
     def _check_knee_tracking(self):
+        
+        dist_knees_x = abs(self.right_knee[0] - self.left_knee[0])
+        dist_ankles_x = abs(self.right_ankle[0] - self.left_ankle[0])
 
-        # Values for knee caving inwards calculation    
-        threshold_knee_caving = 0.05     
-        right_dist_knee_ankle = np.linalg.norm(self.right_knee[:2] - self.right_ankle[:2]) 
-        left_dist_knee_ankle = np.linalg.norm(self.left_knee[:2] - self.left_ankle[:2]) 
-        dist_knees = np.linalg.norm(self.right_knee[:2] - self.left_knee[:2]) + threshold_knee_caving
+        # Knees should be roughly in line with ankles, so we can compare the distance between knees to the distance between ankles to determine if knees are caving inwards
 
+        ratio = dist_knees_x / dist_ankles_x if dist_ankles_x > 0 else 1.0
 
+        knee_caving_threshold = 0.80 
+        
         # Independent checks for both issues
-        if self.cam_pos == "front" and (dist_knees < right_dist_knee_ankle or dist_knees < left_dist_knee_ankle):
+        if ratio < knee_caving_threshold:
             message = "KNEE TRACKING: Knees are caving inwards."
             if self._last_knee_state != "caving":
                 save_snapshot(self.annotated, "squat_kneeIn_snapshot.jpg")

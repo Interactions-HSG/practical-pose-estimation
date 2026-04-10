@@ -24,7 +24,7 @@ class BenchpressFormChecker:
 
         #ROM delay
         self.rom_start_time = None
-        self.rom_delay_seconds = 0.6
+        self.rom_delay_seconds = 1.0
 
         #Variables for playing sounds
         self.language = 'en'
@@ -70,7 +70,7 @@ class BenchpressFormChecker:
         self.left_hip = landmarks[12]
         self.left_ear = landmarks[4]
 
-        required_landmarks = [self.right_elbow, self.right_wrist, self.left_elbow, self.left_wrist]
+        required_landmarks = [self.right_shoulder, self.right_wrist, self.right_elbow, self.left_shoulder, self.left_wrist, self.left_elbow]
 
         self.cam_pos = detect_cam_pos([self.left_ear[2], self.right_ear[2]])
 
@@ -79,9 +79,9 @@ class BenchpressFormChecker:
         message = ""
         
         if self.cam_pos == "left":
-            relevant = required_landmarks[5:10]
+            relevant = required_landmarks[0:3]
         elif self.cam_pos == "right":
-            relevant = required_landmarks[0:5]
+            relevant = required_landmarks[3:6]
         else:
             relevant = required_landmarks
 
@@ -92,7 +92,7 @@ class BenchpressFormChecker:
             message = "You have been detected!"
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
-                                                                                                    text="Please adjust the camera until your whole body is visible.",
+                                                                                                    text=message,
                                                                                                     filepath="feedback/camera_feedback.mp3",
                                                                                                     last_audio_end_time=self.last_audio_end_time,
                                                                                                     color=self.green,
@@ -121,10 +121,11 @@ class BenchpressFormChecker:
                     rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_range_of_motion(rom_achieved, init_pos)
                 elif self.cam_pos in ("left", "right") and self.initial_detection_timer_done:
                     self._capture_side_snapshot_if_due(self.cam_pos)
+                    rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks = self._check_range_of_motion(rom_achieved, init_pos)
         else:
             if self.tts:
                 self.last_audio_end_time, self.last_filepath, self.green_queue, self.detected = play_audio_feedback(
-                                                                                                    text=message,
+                                                                                                    text="Please adjust the camera until your whole body is visible.",
                                                                                                     filepath="feedback/camera_feedback.mp3", 
                                                                                                     last_audio_end_time=self.last_audio_end_time,
                                                                                                     color=self.red, 
@@ -157,11 +158,11 @@ class BenchpressFormChecker:
             # Start of Movement (Important for ROM check and to avoid false triggers)
             if init_pos:
                 init_pos = False
-                self.rom_start_time = time.time()
+                self.rom_start_time = time.monotonic()
                 return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
             # Check if we are still within the ROM delay period to false trigger audio feedback and only provide feedback after the delay has passed
-            if self.rom_start_time is not None and (time.time() - self.rom_start_time) < self.rom_delay_seconds:
+            if self.rom_start_time is not None and (time.monotonic() - self.rom_start_time) < self.rom_delay_seconds:
                 return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
             if left_elbow_angle < range_of_motion_threshold or right_elbow_angle < range_of_motion_threshold:
@@ -217,7 +218,7 @@ class BenchpressFormChecker:
         grip_width = np.linalg.norm(self.right_wrist[:2] - self.left_wrist[:2]) 
 
         grip_width_threshold_min = 1.5 * dist_shoulders
-        grip_width_threshold_max = 3 * dist_shoulders
+        grip_width_threshold_max = 2.5 * dist_shoulders
 
         if grip_width < grip_width_threshold_min:
             color = self.red

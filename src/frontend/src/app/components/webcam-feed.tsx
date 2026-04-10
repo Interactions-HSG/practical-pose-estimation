@@ -87,6 +87,20 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
     const showCountdownOverlay =
         isRunning && !showPlacementOverlay && personDetected && !initialDetectionTimerDone;
 
+    const normalizeBackendHttpBase = (rawBase: string) => {
+        const base = rawBase.trim().replace(/\/$/, "");
+        if (/^wss:\/\//i.test(base)) return base.replace(/^wss:\/\//i, "https://");
+        if (/^ws:\/\//i.test(base)) return base.replace(/^ws:\/\//i, "http://");
+        return base;
+    };
+
+    const normalizeBackendWsBase = (rawBase: string) => {
+        const base = rawBase.trim().replace(/\/$/, "");
+        if (/^https:\/\//i.test(base)) return base.replace(/^https:\/\//i, "wss://");
+        if (/^http:\/\//i.test(base)) return base.replace(/^http:\/\//i, "ws://");
+        return base;
+    };
+
     const playNextAudio = () => {
         const audio = audioRef.current;
         if (!audio || audioPlayingRef.current) return;
@@ -111,7 +125,6 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
 
         const audio = audioRef.current ?? new Audio();
         audio.preload = "auto";
-        audio.crossOrigin = "anonymous";
 
         //Check if audio playback is already unlocked (e.g. from previous session)
         audio.onended = () => {
@@ -208,7 +221,8 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                         formData.append("file", superBlob, `${exercise}_${currentSetRef.current}_feedback.${realExt}`);
                         formData.append("exercise", exercise);
                         formData.append("session_id", sessionId);
-                        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL;
+                        const rawBackendUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL;
+                        const backendUrl = rawBackendUrl ? normalizeBackendHttpBase(rawBackendUrl) : "";
                         console.log("Blob size (MB):", (superBlob.size));
                         const res = await fetch(`${backendUrl}/upload`, {
                             method: "POST",
@@ -244,7 +258,7 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
                 let wsUrl: string;
 
                 if (envBackendBase) {
-                    const normalizedBase = envBackendBase.replace(/^https:\/\//i, "wss://")
+                    const normalizedBase = normalizeBackendWsBase(envBackendBase);
                     wsUrl = `${normalizedBase}/livestream?exercise=${exercise}`;
                 } else {
                     const wsHost = window.location.hostname;
@@ -491,7 +505,8 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
 
     // Handlers for starting exercise, ending set, moving to next set, and stopping exercise
     const handleStart = async () => {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL;
+        const rawBackendUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL;
+        const backendUrl = rawBackendUrl ? normalizeBackendHttpBase(rawBackendUrl) : "";
         for (let setNum = 1; setNum <= totalSets; setNum++) {
             const videoPath = `/${exercise}_${setNum}_feedback.mp4`;
             try {
@@ -571,7 +586,8 @@ export default function WebcamFeed({ exercise }: WebcamFeedProps) {
         pollInterval = setInterval(checkVideo, 3000);
 
         const backendUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL;
-        const res = await fetch(`${backendUrl}/generate_feedback`, {
+        const normalizedBackendUrl = backendUrl ? normalizeBackendHttpBase(backendUrl) : "";
+        const res = await fetch(`${normalizedBackendUrl}/generate_feedback`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ sessionId, exercise, set: currentSetRef.current }),

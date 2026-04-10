@@ -203,7 +203,7 @@ class BentOverRowFormChecker:
         right_elbow_angle = calculate_angle(self.right_shoulder[:2], self.right_elbow[:2], self.right_wrist[:2])
 
         elbow_flexion_threshold = 140
-        range_of_motion_threshold = 115
+        range_of_motion_threshold = 100
 
         if self.cam_pos == "left":
             in_pull_phase = left_elbow_angle < elbow_flexion_threshold
@@ -217,11 +217,11 @@ class BentOverRowFormChecker:
             # Start of Movement (Important for ROM check and to avoid false triggers)
             if init_pos:
                 init_pos = False
-                self.rom_start_time = time.time()
+                self.rom_start_time = time.monotonic()
                 return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks
 
             # Check if we are still within the ROM delay period to false trigger audio feedback and only provide feedback after the delay has passed
-            if self.rom_start_time is not None and (time.time() - self.rom_start_time) < self.rom_delay_seconds:
+            if self.rom_start_time is not None and (time.monotonic() - self.rom_start_time) < self.rom_delay_seconds:
                 return rom_achieved, init_pos, self.detected, self.initial_detection_timer_done, self.rep_counter, self.raw_feedbacks   
             
             if self.cam_pos == "front" and left_elbow_angle < range_of_motion_threshold or right_elbow_angle < range_of_motion_threshold and init_pos == False:
